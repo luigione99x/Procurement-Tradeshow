@@ -1,0 +1,622 @@
+// Schema del database per la gestione di pratiche fieristiche (procurement stand).
+// Ogni pratica (Pratica) collega brief, documenti, fornitori, RFQ, email, offerte,
+// decisioni, piano di esecuzione e log — tutto scoped per azienda (multi-tenant).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- Tenancy & auth ----------
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users             User[]
+  pratiche          Pratica[]
+  integrationConfig IntegrationConfig[]
+  gmailSyncState    GmailSyncState?
+}
+
+enum UserRole {
+  ADMIN // gestisce le pratiche per conto dei clienti (utente primario)
+  MARKETING // referente marketing del cliente espositore
+}
+
+model User {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole @default(ADMIN)
+  createdAt    DateTime @default(now())
+
+  praticheCreate    Pratica[]        @relation("PraticaCreatedBy")
+  documentiCaricati Documento[]
+  decisioniPrese    Decisione[]
+  auditLogs         AuditLog[]
+}
+
+// ---------- Pratica (fiera) ----------
+
+enum PraticaStatus {
+  QUALIFICAZIONE // chat AI in corso, capitolato non ancora approvato
+  RICERCA_FORNITORI // capitolato approvato, ricerca in corso/completata
+  RFQ_INVIATE // RFQ inviate, in attesa risposte
+  CONFRONTO_OFFERTE // offerte ricevute, confronto in corso
+  FORNITORE_SCELTO // decisione presa, piano di esecuzione attivo
+  COMPLETATA
+  ARCHIVIATA
+}
+
+model Pratica {
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id])
+  status    PraticaStatus @default(QUALIFICAZIONE)
+
+  nome                     String
+  fieraNome                String
+  citta                    String?
+  padiglione               String?
+  dataInizioFiera          DateTime?
+  dataFineFiera            DateTime?
+  dimensioneMq             Float?
+  posizioneStand           String?
+  budgetTotalePartecip     Decimal?  @db.Decimal(12, 2)
+  budgetStand              Decimal?  @db.Decimal(12, 2)
+  obiettivi                String?
+  prodottiEsposti          String?
+  scadenzaSceltaFornitore  DateTime?
+  referenteAziendaleNome   String?
+  referenteAziendaleEmail  String?
+  fornitoreStoricoNome     String?
+  fornitoreStoricoContatto String?
+
+  // campi strutturati raccolti dalla chat di qualificazione
+  qualificazione Json? // { tipoStand, standNuovo, areeDemo, magazzino, grafiche, schermi, acqua, corrente, trasporto, arredi, serviziAcquistati, ... }
+
+  createdById String
+  createdBy   User     @relation("PraticaCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documenti          Documento[]
+  chatMessages       ChatMessage[]
+  capitolatoVersions CapitolatoVersion[]
+  fornitori          Fornitore[]
+  ricercheLog        FornitoreRicercaLog[]
+  rfqCampaigns       RFQCampaign[]
+  emailThreads       EmailThread[]
+  offerte            Offerta[]
+  decisione          Decisione?
+  pianoAttivita      PianoAttivita[]
+  rischi             Rischio[]
+  auditLogs          AuditLog[]
+  noteManuali        NotaManuale[]
+
+  @@index([companyId, status])
+}
+
+// ---------- Documenti ----------
+
+enum DocumentoTipo {
+  PLANIMETRIA
+  MANUALE_ESPOSITORE
+  CHECKLIST
+  IMMAGINE_RIFERIMENTO
+  PREVENTIVO_PRECEDENTE
+  MATERIALE_BRAND
+  CONTRATTO
+  OFFERTA_PDF
+  ALLEGATO_EMAIL
+  RICEVUTA_NOTA
+  ALTRO
+}
+
+model Documento {
+  id         String        @id @default(cuid())
+  praticaId  String
+  pratica    Pratica       @relation(fields: [praticaId], references: [id])
+  tipo       DocumentoTipo
+  fileName   String
+  blobUrl    String
+  mimeType   String?
+  size       Int?
+  extractedText String? // testo estratto (per PDF, quando disponibile) usato per citazioni
+
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  uploadedAt   DateTime @default(now())
+
+  @@index([praticaId, tipo])
+}
+
+// ---------- Chat AI (qualificazione + assistente di pratica) ----------
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ChatContext {
+  QUALIFICAZIONE
+  ASSISTENTE
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  praticaId String
+  pratica   Pratica     @relation(fields: [praticaId], references: [id])
+  context   ChatContext @default(ASSISTENTE)
+  role      ChatRole
+  content   String
+  citazioni Json? // [{tipo: 'email'|'documento', ref, snippet}]
+  createdAt DateTime    @default(now())
+
+  @@index([praticaId, context, createdAt])
+}
+
+// ---------- Capitolato ----------
+
+enum CapitolatoStatus {
+  BOZZA
+  IN_ATTESA_APPROVAZIONE
+  APPROVATO
+  SUPERATO // sostituito da versione successiva
+}
+
+model CapitolatoVersion {
+  id            String           @id @default(cuid())
+  praticaId     String
+  pratica       Pratica          @relation(fields: [praticaId], references: [id])
+  versionNumber Int
+  status        CapitolatoStatus @default(BOZZA)
+  contentJson   Json // requisiti obbligatori, desiderabili, servizi da includere/quotare separatamente, vincoli, budget, scadenze
+  contentMarkdown String
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime         @default(now())
+
+  rfqCampaigns RFQCampaign[]
+
+  @@unique([praticaId, versionNumber])
+}
+
+// ---------- Fornitori ----------
+
+enum FornitoreStato {
+  CANDIDATO
+  SHORTLIST
+  SCARTATO
+  RFQ_INVIATA
+}
+
+enum FornitoreFonte {
+  RICERCA_SERPER
+  MANUALE
+  STORICO_CLIENTE
+}
+
+model Fornitore {
+  id             String         @id @default(cuid())
+  praticaId      String
+  pratica        Pratica        @relation(fields: [praticaId], references: [id])
+  nome           String
+  sito           String?
+  areaOperativa  String?
+  serviziDichiarati String?
+  esempiProgetti String?
+  email          String?
+  emailVerificata Boolean       @default(false)
+  emailFonteUrl  String? // URL esatto dove è stata trovata l'email
+  ragionePertinenza String?
+  dubbi          String? // es. "sito non accessibile", "email non trovata"
+  sitoAccessibile Boolean?
+  stato          FornitoreStato @default(CANDIDATO)
+  fonte          FornitoreFonte @default(RICERCA_SERPER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  rfqInvii     RFQInvio[]
+  emailThreads EmailThread[]
+  offerte      Offerta[]
+
+  @@index([praticaId, stato])
+}
+
+model FornitoreRicercaLog {
+  id        String   @id @default(cuid())
+  praticaId String
+  pratica   Pratica  @relation(fields: [praticaId], references: [id])
+  query     String
+  fonte     String   @default("serper")
+  risultatiJson Json
+  createdAt DateTime @default(now())
+
+  @@index([praticaId])
+}
+
+// ---------- RFQ ----------
+
+enum RFQCampaignStatus {
+  BOZZA
+  IN_ATTESA_APPROVAZIONE
+  APPROVATA
+  INVIO_IN_CORSO
+  INVIATA
+}
+
+model RFQCampaign {
+  id                  String            @id @default(cuid())
+  praticaId           String
+  pratica             Pratica           @relation(fields: [praticaId], references: [id])
+  capitolatoVersionId String
+  capitolatoVersion   CapitolatoVersion @relation(fields: [capitolatoVersionId], references: [id])
+  status              RFQCampaignStatus @default(BOZZA)
+  approvedById        String?
+  approvedAt          DateTime?
+  createdAt           DateTime          @default(now())
+
+  invii RFQInvio[]
+
+  @@index([praticaId])
+}
+
+enum RFQInvioStatus {
+  BOZZA
+  PRONTO
+  INVIO_IN_CORSO
+  INVIATO
+  FALLITO
+}
+
+model RFQInvio {
+  id          String         @id @default(cuid())
+  campaignId  String
+  campaign    RFQCampaign    @relation(fields: [campaignId], references: [id])
+  fornitoreId String
+  fornitore   Fornitore      @relation(fields: [fornitoreId], references: [id])
+  toEmail     String
+  subject     String
+  bodyText    String
+  allegatiIds String[] // Documento ids allegati
+  status      RFQInvioStatus @default(BOZZA)
+  dedupeKey   String         @unique // campaignId+fornitoreId+capitolatoVersionId per evitare doppi invii
+  gmailMessageId String?
+  gmailThreadId  String?
+  sentAt         DateTime?
+  errorMessage   String?
+  retryCount     Int       @default(0)
+  createdAt      DateTime  @default(now())
+}
+
+// ---------- Comunicazioni (email) ----------
+
+model EmailThread {
+  id            String     @id @default(cuid())
+  praticaId     String
+  pratica       Pratica    @relation(fields: [praticaId], references: [id])
+  fornitoreId   String?
+  fornitore     Fornitore? @relation(fields: [fornitoreId], references: [id])
+  gmailThreadId String     @unique
+  subject       String?
+  lastMessageAt DateTime?
+  createdAt     DateTime   @default(now())
+
+  messages EmailMessage[]
+
+  @@index([praticaId])
+}
+
+enum EmailDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum EmailClassification {
+  NON_CLASSIFICATA
+  DISPONIBILE
+  NON_DISPONIBILE
+  CHIEDE_CHIARIMENTI
+  OFFERTA_RICEVUTA
+  DA_VERIFICARE
+  ALTRO
+}
+
+model EmailMessage {
+  id             String               @id @default(cuid())
+  threadId       String
+  thread         EmailThread          @relation(fields: [threadId], references: [id])
+  gmailMessageId String               @unique
+  direction      EmailDirection
+  fromAddress    String?
+  toAddress      String?
+  subject        String?
+  bodyText       String?
+  bodyHtml       String?
+  receivedAt     DateTime?
+  classification EmailClassification  @default(NON_CLASSIFICATA)
+  estrazioneJson Json? // dati estratti dall'AI con riferimenti di fonte
+  createdAt      DateTime             @default(now())
+
+  allegati EmailAttachment[]
+  offerte  Offerta[]
+
+  @@index([threadId])
+}
+
+model EmailAttachment {
+  id        String       @id @default(cuid())
+  messageId String
+  message   EmailMessage @relation(fields: [messageId], references: [id])
+  fileName  String
+  blobUrl   String
+  mimeType  String?
+  size      Int?
+}
+
+// ---------- Offerte ----------
+
+enum OffertaStato {
+  DA_VERIFICARE
+  CONFERMATA
+  SCARTATA
+}
+
+model Offerta {
+  id            String       @id @default(cuid())
+  praticaId     String
+  pratica       Pratica      @relation(fields: [praticaId], references: [id])
+  fornitoreId   String
+  fornitore     Fornitore    @relation(fields: [fornitoreId], references: [id])
+  emailMessageId String?
+  emailMessage  EmailMessage? @relation(fields: [emailMessageId], references: [id])
+  documentoId   String? // eventuale PDF offerta
+
+  versionNumber Int      @default(1)
+  stato         OffertaStato @default(DA_VERIFICARE)
+
+  prezzo             Decimal? @db.Decimal(12, 2)
+  valuta             String?  @default("EUR")
+  ivaInclusa         Boolean?
+  progetto           String?
+  produzione         String?
+  grafiche           String?
+  arredi             String?
+  trasporto          String?
+  montaggio          String?
+  smontaggio         String?
+  serviziTecnici     String?
+  praticheFieristiche String?
+  condizioniPagamento String?
+  tempiConsegna      String?
+  validitaOfferta    DateTime?
+  riutilizzabilita   String?
+  esclusioni         String?
+  rischiNote         String?
+
+  fieldSources FieldSource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  decisioniScelte Decisione[] @relation("OffertaScelta")
+
+  @@index([praticaId, fornitoreId])
+}
+
+// citazione della fonte per ogni campo estratto (email, pagina, documento+pagina)
+model FieldSource {
+  id         String   @id @default(cuid())
+  offertaId  String
+  offerta    Offerta  @relation(fields: [offertaId], references: [id])
+  fieldName  String
+  sourceType String // "email" | "documento"
+  sourceRef  String // id messaggio email o id documento
+  pageNumber Int?
+  snippet    String?
+  createdAt  DateTime @default(now())
+
+  @@index([offertaId, fieldName])
+}
+
+// ---------- Decisione ----------
+
+model Decisione {
+  id          String   @id @default(cuid())
+  praticaId   String   @unique
+  pratica     Pratica  @relation(fields: [praticaId], references: [id])
+  offertaSceltaId String
+  offertaScelta   Offerta @relation("OffertaScelta", fields: [offertaSceltaId], references: [id])
+
+  contrattoDocumentoId String?
+  prezzoFinale          Decimal?  @db.Decimal(12, 2)
+  referenteFornitore    String?
+  dateConcordate        Json?
+  note                  String?
+
+  prezzoInizialeRiferimento Decimal? @db.Decimal(12, 2)
+  provaPrezzoInizialeDocId  String? // documento/email che prova il prezzo iniziale
+  provaPrezzoFinaleDocId    String?
+  risparmioVerificabile     Boolean  @default(false)
+  risparmioCalcolato        Decimal? @db.Decimal(12, 2)
+  feeAccessoAnnua           Decimal  @default(500) @db.Decimal(12, 2)
+  feeSuccessPercentuale     Decimal  @default(30) @db.Decimal(5, 2)
+  feeSuccessCalcolata       Decimal  @default(0) @db.Decimal(12, 2)
+
+  decisoDaId String
+  decisoDa   User     @relation(fields: [decisoDaId], references: [id])
+  decisoAt   DateTime @default(now())
+}
+
+// ---------- Piano di esecuzione ----------
+
+enum TaskStato {
+  RICHIESTO
+  PROMESSO
+  RICEVUTO
+  APPROVATO
+  COMPLETATO
+  BLOCCATO
+}
+
+enum ResponsabileTipo {
+  CLIENTE
+  ALLESTITORE
+  ENTE_FIERA
+  ALTRO_FORNITORE
+  NOI
+  DA_CONFERMARE
+}
+
+model PianoAttivita {
+  id          String           @id @default(cuid())
+  praticaId   String
+  pratica     Pratica          @relation(fields: [praticaId], references: [id])
+  titolo      String
+  descrizione String?
+  responsabileTipo ResponsabileTipo @default(DA_CONFERMARE)
+  responsabileNome String?
+  stato       TaskStato        @default(RICHIESTO)
+  scadenza    DateTime?
+  dataPromessaOriginale DateTime?
+  dipendenzeIds String[]
+  fonteType   String? // "email" | "documento" | "manuale"
+  fonteRef    String?
+  storico     Json? // changelog delle modifiche di stato/data con fonte e timestamp
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  rischi Rischio[]
+
+  @@index([praticaId, stato])
+}
+
+enum RischioSeverita {
+  BASSA
+  MEDIA
+  ALTA
+}
+
+enum RischioStato {
+  APERTO
+  RISOLTO
+}
+
+model Rischio {
+  id           String          @id @default(cuid())
+  praticaId    String
+  pratica      Pratica         @relation(fields: [praticaId], references: [id])
+  taskId       String?
+  task         PianoAttivita?  @relation(fields: [taskId], references: [id])
+  fornitoreId  String?
+  descrizione  String
+  severita     RischioSeverita @default(MEDIA)
+  stato        RischioStato    @default(APERTO)
+  fonteRef     String?
+  azioneProposta String?
+  bozzaFollowUp  String?
+  createdAt    DateTime        @default(now())
+  resolvedAt   DateTime?
+
+  @@index([praticaId, stato])
+}
+
+// note manuali: telefonate, azioni su portali fiera, non tracciabili via email
+model NotaManuale {
+  id          String   @id @default(cuid())
+  praticaId   String
+  pratica     Pratica  @relation(fields: [praticaId], references: [id])
+  tipo        String // "telefonata" | "portale" | "altro"
+  descrizione String
+  allegatoDocumentoId String?
+  data        DateTime @default(now())
+  registratoDaNome String?
+  createdAt   DateTime @default(now())
+}
+
+// ---------- Log / audit ----------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  praticaId  String
+  pratica    Pratica  @relation(fields: [praticaId], references: [id])
+  actorType  String // "sistema" | "utente"
+  actorUserId String?
+  actorUser  User?    @relation(fields: [actorUserId], references: [id])
+  tipo       String
+  descrizione String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([praticaId, createdAt])
+}
+
+// ---------- Integrazioni ----------
+
+enum IntegrationProvider {
+  OPENAI
+  SERPER
+  GMAIL
+}
+
+model IntegrationConfig {
+  id            String              @id @default(cuid())
+  companyId     String
+  company       Company             @relation(fields: [companyId], references: [id])
+  provider      IntegrationProvider
+  connected     Boolean             @default(false)
+  metadata      Json? // dati non sensibili (es. email Gmail collegata)
+  lastCheckedAt DateTime?
+  lastError     String?
+
+  @@unique([companyId, provider])
+}
+
+model GmailSyncState {
+  id            String   @id @default(cuid())
+  companyId     String   @unique
+  company       Company  @relation(fields: [companyId], references: [id])
+  historyId     String?
+  lastSyncAt    DateTime?
+  lastError     String?
+}
+
+// ultimo accesso di un utente a una pratica, per mostrare "cosa è successo dall'ultimo accesso"
+model PraticaAccess {
+  id           String   @id @default(cuid())
+  praticaId    String
+  userId       String
+  lastViewedAt DateTime @default(now())
+
+  @@unique([praticaId, userId])
+}
+
+// idempotenza dei job in background (evita doppi invii/elaborazioni dopo un riavvio)
+enum JobStatus {
+  IN_CORSO
+  COMPLETATO
+  FALLITO
+}
+
+model BackgroundJobRun {
+  id         String    @id @default(cuid())
+  jobType    String
+  dedupeKey  String    @unique
+  status     JobStatus @default(IN_CORSO)
+  resultJson Json?
+  errorMessage String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+}
