@@ -1,42 +1,39 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Msg = { id: string; role: "USER" | "ASSISTANT" | "SYSTEM"; content: string };
-
-const CAMPI_LABEL: Record<string, string> = {
-  tipoStand: "Tipo di stand",
-  standNuovoORiutilizzabile: "Stand nuovo o riutilizzabile",
-  areeDemoOIncontri: "Aree demo o incontri",
-  magazzino: "Magazzino",
-  grafiche: "Grafiche",
-  schermi: "Schermi",
-  acqua: "Acqua",
-  corrente: "Corrente",
-  trasporto: "Trasporto",
-  arredi: "Arredi",
-  serviziGiaAcquistati: "Servizi già acquistati",
-  fornitoreStorico: "Fornitore storico",
-};
+type CampoEstratto = { chiave: string; etichetta: string; valore: string };
 
 export default function QualificazioneChat({
   praticaId,
   initialMessages,
-  initialQualificazione,
+  initialStato,
+  initialEstrazione,
 }: {
   praticaId: string;
   initialMessages: Msg[];
-  initialQualificazione: Record<string, unknown>;
+  initialStato: "IN_CORSO" | "PRONTA_PER_REVISIONE" | "CONFERMATA";
+  initialEstrazione: CampoEstratto[] | null;
 }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
-  const [qualificazione, setQualificazione] = useState<Record<string, unknown>>(initialQualificazione || {});
+  const [stato, setStato] = useState(initialStato);
+  const [estrazione, setEstrazione] = useState<CampoEstratto[]>(initialEstrazione || []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pronto, setPronto] = useState(false);
+  const [notaAggiuntiva, setNotaAggiuntiva] = useState("");
+  const [aggiornando, setAggiornando] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
     setError(null);
     const userMsg: Msg = { id: `tmp-${Date.now()}`, role: "USER", content: input };
     setMessages((m) => [...m, userMsg]);
@@ -51,76 +48,152 @@ export default function QualificazioneChat({
     if (res.ok) {
       const data = await res.json();
       setMessages((m) => [...m, data.message]);
-      setQualificazione(data.qualificazione || {});
-      setPronto(Boolean(data.pronterPerCapitolato));
+      if (data.pronto && data.estrazione) {
+        setEstrazione(data.estrazione);
+        setStato("PRONTA_PER_REVISIONE");
+      }
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error || "Errore nella chat di qualificazione");
     }
   }
 
-  async function saveField(key: string, value: string) {
-    const next = { ...qualificazione, [key]: value };
-    setQualificazione(next);
-    await fetch(`/api/pratiche/${praticaId}`, {
-      method: "PATCH",
+  async function riapriChat() {
+    await fetch(`/api/pratiche/${praticaId}/qualificazione`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ qualificazione: next }),
+      body: JSON.stringify({ azione: "riapri" }),
+    });
+    setStato("IN_CORSO");
+  }
+
+  async function aggiornaConNota() {
+    if (!notaAggiuntiva.trim()) return;
+    setAggiornando(true);
+    setError(null);
+    const res = await fetch(`/api/pratiche/${praticaId}/qualificazione`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ azione: "aggiorna", notaAggiuntiva }),
+    });
+    setAggiornando(false);
+    if (res.ok) {
+      const data = await res.json();
+      setEstrazione(data.estrazione);
+      setNotaAggiuntiva("");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Errore nell'aggiornamento");
+    }
+  }
+
+  function modificaCampo(idx: number, valore: string) {
+    setEstrazione((e) => e.map((c, i) => (i === idx ? { ...c, valore } : c)));
+  }
+
+  async function salvaModificheCampi() {
+    await fetch(`/api/pratiche/${praticaId}/qualificazione`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ azione: "modifica", estrazione }),
     });
   }
 
-  const campi = Array.from(new Set([...Object.keys(CAMPI_LABEL), ...Object.keys(qualificazione)]));
+  async function conferma() {
+    setLoading(true);
+    setError(null);
+    const res = await fetch(`/api/pratiche/${praticaId}/qualificazione`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ azione: "conferma", estrazione }),
+    });
+    setLoading(false);
+    if (res.ok) {
+      setStato("CONFERMATA");
+      router.refresh();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Errore nella conferma");
+    }
+  }
+
+  if (stato === "PRONTA_PER_REVISIONE") {
+    return (
+      <div className="card max-w-2xl mx-auto">
+        <h3 className="font-semibold text-lg mb-1">Ecco cosa ho capito</h3>
+        <p className="text-sm text-slate-500 mb-4">Controlla, correggi se serve, poi conferma per generare il capitolato.</p>
+        <div className="space-y-3 mb-4">
+          {estrazione.map((c, idx) => (
+            <div key={c.chiave + idx}>
+              <label className="label">{c.etichetta}</label>
+              <input className="input" value={c.valore} onChange={(e) => modificaCampo(idx, e.target.value)} onBlur={salvaModificheCampi} />
+            </div>
+          ))}
+          {estrazione.length === 0 && <p className="text-slate-400 text-sm">Nessuna informazione estratta.</p>}
+        </div>
+
+        <div className="border-t border-slate-200 pt-4">
+          <label className="label">C'è qualcosa che manca o vuoi correggere? Scrivilo pure liberamente</label>
+          <textarea className="input mb-2" rows={2} value={notaAggiuntiva} onChange={(e) => setNotaAggiuntiva(e.target.value)} placeholder="Es. dimenticavo, ci serve anche una zona bar..." />
+          <button className="btn-secondary text-sm" onClick={aggiornaConNota} disabled={aggiornando || !notaAggiuntiva.trim()}>
+            {aggiornando ? "Aggiorno..." : "Aggiorna con questa nota"}
+          </button>
+        </div>
+
+        {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+
+        <div className="flex justify-between items-center mt-5">
+          <button className="text-sm text-slate-500 hover:underline" onClick={riapriChat}>
+            ← Torna alla conversazione
+          </button>
+          <button className="btn-primary" onClick={conferma} disabled={loading}>
+            {loading ? "Conferma in corso..." : "Confermo, genera il capitolato"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div className="card flex flex-col h-[28rem]">
-        <h3 className="font-semibold mb-2">Chat di qualificazione</h3>
-        <div className="flex-1 overflow-y-auto space-y-2 text-sm mb-2">
-          {messages.length === 0 && (
-            <p className="text-slate-400">
-              L'assistente farà solo le domande sui dati mancanti rispetto a brief e documenti già caricati.
-            </p>
-          )}
-          {messages.map((m) => (
-            <div key={m.id} className={m.role === "USER" ? "text-right" : ""}>
-              <div
-                className={
-                  "inline-block rounded-lg px-3 py-2 max-w-[85%] whitespace-pre-wrap " +
-                  (m.role === "USER" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800")
-                }
-              >
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {loading && <div className="text-slate-400">Sto pensando...</div>}
-          {error && <div className="text-red-600">{error}</div>}
-        </div>
-        <form onSubmit={send} className="flex gap-2">
-          <input className="input flex-1" placeholder="Rispondi..." value={input} onChange={(e) => setInput(e.target.value)} />
-          <button className="btn-primary" disabled={loading}>
-            Invia
-          </button>
-        </form>
-        {pronto && <p className="text-sm text-green-600 mt-2">Informazioni sufficienti per generare il capitolato.</p>}
+    <div className="card max-w-2xl mx-auto flex flex-col h-[34rem]">
+      <div className="mb-2">
+        <h3 className="font-semibold">Il tuo project manager AI</h3>
+        <p className="text-xs text-slate-500">Racconta la tua idea di stand: scrivi tanto o poco come preferisci, faccio solo le domande che servono davvero.</p>
       </div>
-
-      <div className="card">
-        <h3 className="font-semibold mb-2">Campi strutturati</h3>
-        <p className="text-xs text-slate-400 mb-3">Aggiornati dalla chat, modificabili manualmente.</p>
-        <div className="space-y-2">
-          {campi.map((key) => (
-            <div key={key}>
-              <label className="label">{CAMPI_LABEL[key] || key}</label>
-              <input
-                className="input"
-                defaultValue={(qualificazione[key] as string) || ""}
-                onBlur={(e) => saveField(key, e.target.value)}
-              />
+      <div className="flex-1 overflow-y-auto space-y-3 text-sm mb-3 pr-1">
+        {messages.length === 0 && (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-slate-500">
+            Scrivi qui la tua idea per lo stand per iniziare (es. tipo di presenza che immagini, cosa vuoi ottenere dalla fiera, che sensazione vuoi dare)...
+          </div>
+        )}
+        {messages.map((m) => (
+          <div key={m.id} className={m.role === "USER" ? "text-right" : ""}>
+            <div
+              className={
+                "inline-block rounded-lg px-3 py-2 max-w-[85%] whitespace-pre-wrap text-left " +
+                (m.role === "USER" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-800")
+              }
+            >
+              {m.content}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
+        {loading && <div className="text-slate-400">Sto scrivendo...</div>}
+        {error && <div className="text-red-600">{error}</div>}
+        <div ref={bottomRef} />
       </div>
+      <form onSubmit={send} className="flex gap-2">
+        <input
+          className="input flex-1"
+          placeholder={messages.length === 0 ? "La mia idea è..." : "Rispondi..."}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          autoFocus
+        />
+        <button className="btn-primary" disabled={loading || !input.trim()}>
+          Invia
+        </button>
+      </form>
     </div>
   );
 }

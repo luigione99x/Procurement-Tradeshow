@@ -41,24 +41,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         where: { praticaId: params.id, context: "QUALIFICAZIONE" },
         orderBy: { createdAt: "asc" },
       });
+      const primoTurno = storico.filter((m) => m.role === "USER").length <= 1;
 
       const risultato = await eseguiTurnoQualificazione({
         briefPratica: pratica as unknown as Record<string, unknown>,
-        qualificazioneAttuale: (pratica.qualificazione as Record<string, unknown>) || {},
         documentiSommario,
         cronologiaChat: storico.map((m) => ({ role: m.role.toLowerCase(), content: m.content })),
         ultimoMessaggioUtente: message,
+        primoTurno,
       });
 
-      const nuovaQualificazione = {
-        ...((pratica.qualificazione as Record<string, unknown>) || {}),
-        ...risultato.campiAggiornati,
-      };
-
-      await prisma.pratica.update({
-        where: { id: params.id },
-        data: { qualificazione: nuovaQualificazione as any },
-      });
+      const dataUpdate: Record<string, unknown> = {};
+      if (risultato.pronto && risultato.estrazione) {
+        dataUpdate.qualificazioneEstrazione = risultato.estrazione as any;
+        dataUpdate.qualificazioneStato = "PRONTA_PER_REVISIONE";
+      }
+      if (Object.keys(dataUpdate).length > 0) {
+        await prisma.pratica.update({ where: { id: params.id }, data: dataUpdate });
+      }
 
       const assistantMsg = await prisma.chatMessage.create({
         data: {
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
       });
 
-      return NextResponse.json({ message: assistantMsg, pronterPerCapitolato: risultato.pronterPerCapitolato, qualificazione: nuovaQualificazione });
+      return NextResponse.json({ message: assistantMsg, pronto: risultato.pronto, estrazione: risultato.estrazione || null });
     }
 
     // Contesto ASSISTENTE: risponde a domande sulla pratica citando fonti.

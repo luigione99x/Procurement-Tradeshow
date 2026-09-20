@@ -52,6 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         capitolatoMarkdown: capitolato.contentMarkdown,
         fornitoreNome: f.nome,
         briefPratica: pratica as unknown as Record<string, unknown>,
+        categoria: f.categoria,
       });
       await prisma.rFQInvio.create({
         data: {

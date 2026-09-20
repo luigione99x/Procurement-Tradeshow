@@ -45,54 +45,58 @@ async function textCompletion(system: string, user: string, temperature = 0.3): 
 }
 
 // ---------- 1. Qualificazione ----------
+// Conversazione libera: l'AI fa da project manager, non da questionario. Decide da sola
+// quando ha raccolto abbastanza per proporre un'estrazione (campi dinamici, non una lista fissa).
+
+export type CampoEstratto = { chiave: string; etichetta: string; valore: string };
 
 export type QualificazioneRisultato = {
-  domandeMancanti: string[]; // domande ancora da porre all'utente, solo quelle su campi mancanti
-  campiAggiornati: Record<string, unknown>; // campi strutturati desunti dalla risposta più recente
   rispostaAssistente: string; // testo da mostrare in chat
-  pronterPerCapitolato: boolean; // true se non mancano più informazioni essenziali
+  pronto: boolean; // true quando l'AI ha deciso di fermarsi e proporre l'estrazione
+  estrazione?: CampoEstratto[]; // presente solo se pronto=true
 };
-
-const CAMPI_QUALIFICAZIONE = [
-  "tipoStand",
-  "standNuovoORiutilizzabile",
-  "areeDemoOIncontri",
-  "magazzino",
-  "grafiche",
-  "schermi",
-  "acqua",
-  "corrente",
-  "trasporto",
-  "arredi",
-  "serviziGiaAcquistati",
-  "fornitoreStorico",
-];
 
 export async function eseguiTurnoQualificazione(params: {
   briefPratica: Record<string, unknown>;
-  qualificazioneAttuale: Record<string, unknown>;
   documentiSommario: string;
   cronologiaChat: { role: string; content: string }[];
   ultimoMessaggioUtente: string;
+  primoTurno: boolean;
 }): Promise<QualificazioneRisultato> {
-  const system = `Sei un assistente che qualifica una richiesta di stand fieristico per conto di un procurement manager.
-Campi strutturati da raccogliere (se non già noti dal brief o dai documenti): ${CAMPI_QUALIFICAZIONE.join(", ")}.
-Regole:
-- Leggi il brief e il sommario documenti forniti: NON richiedere informazioni già presenti lì.
-- Fai SOLO le domande sui campi ancora mancanti, una o poche alla volta, in italiano, tono professionale e diretto.
-- Ad ogni turno aggiorna "campiAggiornati" con qualunque informazione strutturata desumibile dall'ultimo messaggio dell'utente (anche parziale).
-- "pronterPerCapitolato" true solo quando la maggior parte dei campi essenziali è nota (va bene qualche campo opzionale mancante).
-- Rispondi SOLO con un oggetto JSON con chiavi: domandeMancanti (array di stringhe), campiAggiornati (oggetto), rispostaAssistente (stringa), pronterPerCapitolato (booleano).`;
+  const system = `Sei il project manager AI che qualifica per conto dell'utente una richiesta di allestimento stand fieristico. Non sei un modulo a domande fisse: conduci una conversazione breve, naturale e intelligente.
+
+Regole di conduzione:
+- Se è il primo turno, apri chiedendo in modo aperto la sua idea per lo stand: che tipo di presenza immagina, cosa vuole ottenere, che sensazione vuole dare. Lascia libertà: l'utente può scrivere tanto o poco.
+- Nei turni successivi fai solo le domande sui punti davvero rilevanti e ancora poco chiari (mai una checklist meccanica, mai ripetere cose già dette o già presenti nel brief/documenti forniti). Una o due domande alla volta, tono colloquiale e professionale, come un vero project manager che ascolta.
+- Punta a chiudere in circa 3-6 scambi complessivi (l'utente deve poterci mettere un paio di minuti, non di più). Quando ritieni di avere il quadro sufficiente per scrivere un capitolato (tipo di stand, obiettivi, elementi principali, eventuali vincoli/servizi noti), FERMATI: non fare altre domande.
+- Quando ti fermi, imposta "pronto": true e compila "estrazione" come array di { chiave, etichetta, valore } con TUTTE le informazioni utili raccolte fin lì (dalla conversazione, dal brief, dai documenti). Le chiavi e le etichette devono riflettere naturalmente ciò che è emerso in QUESTA conversazione: non forzare un elenco fisso di campi standard, e non inventare valori non detti. "valore" è sempre una stringa leggibile (se è una lista, separala con virgole).
+- Quando pronto=true, "rispostaAssistente" è un breve messaggio di chiusura (es. "Ecco cosa ho capito, dai un'occhiata qui sotto"), non un'altra domanda.
+- Rispondi SOLO in JSON con chiavi: rispostaAssistente (stringa), pronto (booleano), estrazione (array, solo se pronto=true).`;
 
   const user = JSON.stringify({
     briefPratica: params.briefPratica,
-    qualificazioneAttuale: params.qualificazioneAttuale,
     documentiSommario: params.documentiSommario,
-    cronologiaChat: params.cronologiaChat.slice(-12),
+    cronologiaChat: params.cronologiaChat.slice(-16),
     ultimoMessaggioUtente: params.ultimoMessaggioUtente,
+    primoTurno: params.primoTurno,
+    numeroScambiFinora: params.cronologiaChat.filter((m) => m.role === "user").length,
   });
 
   return jsonCompletion<QualificazioneRisultato>(system, user);
+}
+
+// L'utente, dopo aver visto l'estrazione, può correggere/aggiungere liberamente in un campo di testo
+// (invece di dover per forza tornare a chattare): l'AI aggiorna l'estrazione di conseguenza.
+export async function raffinaEstrazione(params: {
+  estrazioneAttuale: CampoEstratto[];
+  notaAggiuntiva: string;
+}): Promise<CampoEstratto[]> {
+  const system = `L'utente ha ricevuto questa estrazione di informazioni per il suo stand fieristico e ha scritto una nota con correzioni o aggiunte.
+Aggiorna l'estrazione tenendo tutto ciò che resta valido, correggendo o aggiungendo in base alla nota. Non perdere informazioni non contraddette dalla nota.
+Rispondi SOLO in JSON con chiave "estrazione" (array di { chiave, etichetta, valore }).`;
+  const user = JSON.stringify(params);
+  const res = await jsonCompletion<{ estrazione: CampoEstratto[] }>(system, user);
+  return res.estrazione || params.estrazioneAttuale;
 }
 
 // ---------- 2. Capitolato ----------
@@ -171,13 +175,20 @@ export async function generaTestoRFQ(params: {
   capitolatoMarkdown: string;
   fornitoreNome: string;
   briefPratica: Record<string, unknown>;
+  categoria?: string | null; // se valorizzata (strategia multi-fornitore), l'email riguarda SOLO questa attività
 }): Promise<{ subject: string; body: string }> {
-  const system = `Scrivi una email professionale in italiano di richiesta di preventivo (RFQ) per un allestimento fieristico, indirizzata a un allestitore.
-Deve chiedere esplicitamente: prezzo, progettazione e render, produzione, grafiche, trasporto, montaggio, smontaggio, gestione pratiche e servizi fieristici, inclusioni, esclusioni, tempi, condizioni di pagamento, validità dell'offerta.
+  const ambito = params.categoria
+    ? `Questa email riguarda SOLO la fornitura/attività "${params.categoria}" (non l'intero stand): chiedi un preventivo mirato a quella specifica attività, usando il capitolato generale solo come contesto (fiera, date, dimensioni, vincoli) per far capire dove e quando si svolge il lavoro.`
+    : `Questa email riguarda l'allestimento completo dello stand chiavi in mano.`;
+
+  const system = `Scrivi una email professionale in italiano di richiesta di preventivo (RFQ) per uno stand fieristico, indirizzata a un fornitore.
+${ambito}
+Deve chiedere esplicitamente (adattando alla specifica attività se indicata): prezzo, progettazione/dettagli tecnici, produzione o esecuzione, tempi, inclusioni, esclusioni, condizioni di pagamento, validità dell'offerta, e se pertinente montaggio/smontaggio e gestione pratiche.
 Tono cordiale e professionale, firma generica "Il team procurement". Rispondi in JSON con chiavi "subject" e "body" (body in testo semplice con interruzioni di riga, non HTML).`;
 
   const user = JSON.stringify({
     fornitoreNome: params.fornitoreNome,
+    categoria: params.categoria || null,
     fieraNome: params.briefPratica.fieraNome,
     citta: params.briefPratica.citta,
     dataInizioFiera: params.briefPratica.dataInizioFiera,
@@ -327,13 +338,38 @@ export type CandidatoFornitore = {
 export async function selezionaShortlist(params: {
   briefPratica: Record<string, unknown>;
   candidatiGrezzi: unknown[];
+  categoria?: string | null; // se valorizzata, filtra per pertinenza a QUESTA attività specifica, non ad allestitori generali
 }): Promise<CandidatoFornitore[]> {
-  const system = `Hai una lista grezza di pagine web trovate cercando allestitori fieristici. Deduplica per azienda, scarta directory/aggregatori/risultati chiaramente fuori target (es. non allestitori fieristici), e restituisci una shortlist di massimo 10 candidati pertinenti alla fiera/zona/dimensione/tipo di stand indicati nel brief.
+  const focus = params.categoria
+    ? `Stai cercando fornitori per l'attività specifica "${params.categoria}" (NON allestitori generali di stand, a meno che l'attività stessa sia l'allestimento generale). Scarta candidati fuori da questo ambito anche se sembrano allestitori fieristici generici.`
+    : `Stai cercando allestitori fieristici generali (progettazione e realizzazione stand chiavi in mano).`;
+  const system = `Hai una lista grezza di pagine web trovate con una ricerca web. Deduplica per azienda, scarta directory/aggregatori/risultati chiaramente fuori target, e restituisci una shortlist di massimo 10 candidati pertinenti alla fiera/zona indicati nel brief. ${focus}
 NON inventare email: usa solo indirizzi email effettivamente presenti nei dati forniti, con l'URL esatto della pagina da cui provengono. Se non c'è email, lasciala vuota e indicalo in "dubbi".
 Rispondi SOLO con JSON {"candidati": [...]} dove ogni candidato ha: nome, sito, areaOperativa, serviziDichiarati, esempiProgetti, email, emailFonteUrl, ragionePertinenza, dubbi.`;
-  const user = JSON.stringify(params);
+  const user = JSON.stringify({ briefPratica: params.briefPratica, candidatiGrezzi: params.candidatiGrezzi, categoria: params.categoria || null });
   const res = await jsonCompletion<{ candidati: CandidatoFornitore[] }>(system, user);
   return res.candidati || [];
+}
+
+// ---------- 10. Categorie di fornitori (strategia multi-fornitore) ----------
+
+export type CategoriaFornitore = {
+  categoria: string; // es. "Elettricista", "Grafica grande formato", "Noleggio arredi"
+  queryRicerca: string; // query pronta per Serper
+  motivazione: string; // perché serve, dedotto dal capitolato
+};
+
+export async function determinaCategorieFornitori(params: {
+  capitolatoMarkdown: string;
+  briefPratica: Record<string, unknown>;
+}): Promise<CategoriaFornitore[]> {
+  const system = `Analizza questo capitolato per uno stand fieristico e individua le categorie di fornitori/attività SEPARATE necessarie per realizzarlo, dato che l'utente vuole gestire i fornitori singolarmente invece di affidarsi a un allestitore unico chiavi in mano.
+Esempi di categorie possibili (usa solo quelle davvero pertinenti al capitolato, e aggiungine altre se servono): progettazione e struttura stand, grafiche/stampa grande formato, service audio/video, elettricista per allacci e impianto, noleggio arredi, trasporto e logistica, pulizie stand, hostess/personale, catering.
+Per ciascuna categoria scrivi una query di ricerca web pronta per trovare fornitori reali in zona (città/area indicata nel brief) e una breve motivazione basata sul capitolato.
+Rispondi SOLO in JSON {"categorie": [...]} con oggetti { categoria, queryRicerca, motivazione }. Massimo 8 categorie.`;
+  const user = JSON.stringify(params);
+  const res = await jsonCompletion<{ categorie: CategoriaFornitore[] }>(system, user);
+  return res.categorie || [];
 }
 
 export async function generaBozzaFollowUpAttivita(params: {

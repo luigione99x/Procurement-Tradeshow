@@ -58,6 +58,18 @@ enum PraticaStatus {
   ARCHIVIATA
 }
 
+enum QualificazioneStato {
+  IN_CORSO // conversazione con l'AI ancora in corso
+  PRONTA_PER_REVISIONE // l'AI ha prodotto un'estrazione, in attesa di conferma utente
+  CONFERMATA // utente ha confermato: si può generare il capitolato
+}
+
+enum StrategiaFornitori {
+  DA_DECIDERE
+  ALLESTITORE_UNICO // un fornitore chiavi in mano gestisce tutto
+  MULTI_FORNITORE // l'utente gestisce più fornitori per categoria/attività
+}
+
 model Pratica {
   id        String        @id @default(cuid())
   companyId String
@@ -82,8 +94,15 @@ model Pratica {
   fornitoreStoricoNome     String?
   fornitoreStoricoContatto String?
 
-  // campi strutturati raccolti dalla chat di qualificazione
-  qualificazione Json? // { tipoStand, standNuovo, areeDemo, magazzino, grafiche, schermi, acqua, corrente, trasporto, arredi, serviziAcquistati, ... }
+  // campi strutturati raccolti dalla chat di qualificazione (chiavi dinamiche, decise dall'AI in base alla conversazione)
+  qualificazione Json?
+  qualificazioneStato QualificazioneStato @default(IN_CORSO)
+  // estrazione proposta dall'AI in attesa di conferma dell'utente: [{ chiave, etichetta, valore }]
+  qualificazioneEstrazione Json?
+
+  strategiaFornitori StrategiaFornitori @default(DA_DECIDERE)
+  // se MULTI_FORNITORE: categorie di fornitori individuate dall'AI dal capitolato: [{ categoria, queryRicerca, motivazione }]
+  categorieFornitori Json?
 
   createdById String
   createdBy   User     @relation("PraticaCreatedBy", fields: [createdById], references: [id])
@@ -213,6 +232,7 @@ model Fornitore {
   praticaId      String
   pratica        Pratica        @relation(fields: [praticaId], references: [id])
   nome           String
+  categoria      String? // categoria/attività per cui è stato individuato (es. "Elettricista", "Allestitore generale"), usata in strategia MULTI_FORNITORE
   sito           String?
   areaOperativa  String?
   serviziDichiarati String?

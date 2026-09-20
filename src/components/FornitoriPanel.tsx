@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 type Fornitore = {
   id: string;
   nome: string;
+  categoria: string | null;
   sito: string | null;
   areaOperativa: string | null;
   serviziDichiarati: string | null;
@@ -168,6 +169,7 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
                   </div>
                 </label>
                 <div className="flex items-center gap-2">
+                  {f.categoria && <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-100">{f.categoria}</span>}
                   <span className="badge bg-slate-100 text-slate-700">{STATO_LABEL[f.stato]}</span>
                   <span className="badge bg-slate-50 text-slate-500 border border-slate-200">{f.fonte === "RICERCA_SERPER" ? "ricerca" : f.fonte === "STORICO_CLIENTE" ? "storico" : "manuale"}</span>
                   {f.stato !== "RFQ_INVIATA" && (
