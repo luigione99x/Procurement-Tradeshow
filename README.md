@@ -23,7 +23,7 @@ Non è una demo: backend e database sono reali (Neon Postgres), le integrazioni 
 | Chat di qualificazione, generazione capitolato | ⏳ Codice reale, richiede `OPENAI_API_KEY` per funzionare (non simulato: senza chiave la funzione è disattivata e la dashboard lo segnala) |
 | Ricerca allestitori reali | ⏳ Codice reale (query Serper + scraping siti + selezione AI), richiede `SERPER_API_KEY` e `OPENAI_API_KEY` |
 | Invio RFQ reale da Gmail | ⏳ Codice reale, richiede le 4 variabili Gmail (vedi sotto). **Da collaudare con un indirizzo di prova prima dell'uso reale** |
-| Ricezione/classificazione risposte | ⏳ Codice reale via Gmail History API + polling ogni 10 minuti (Vercel Cron), richiede Gmail configurato |
+| Ricezione/classificazione risposte | ⏳ Codice reale via Gmail History API + polling automatico 1 volta al giorno su piano Vercel Hobby (Vercel Cron), richiede Gmail configurato |
 | Confronto offerte, decisione, fee | ✅ Logica reale e testabile una volta presenti le offerte |
 | Piano di esecuzione, rischi, solleciti | ✅ Logica reale; la generazione AI richiede `OPENAI_API_KEY` |
 
@@ -72,7 +72,7 @@ Prima di inviare RFQ a fornitori veri:
 1. Crea una pratica di prova.
 2. Aggiungi un fornitore manuale con **la tua email di prova** (un indirizzo che controlli).
 3. Genera e approva una RFQ verso quel solo indirizzo: verifica che l'email arrivi realmente dalla casella dedicata.
-4. Rispondi da quell'indirizzo di prova e attendi il prossimo ciclo di polling (ogni 10 minuti) o richiama manualmente `GET /api/cron/email-poll` con header `Authorization: Bearer <CRON_SECRET>`.
+4. Rispondi da quell'indirizzo di prova e richiama manualmente `GET /api/cron/email-poll` (con header `Authorization: Bearer <CRON_SECRET>`) invece di aspettare il ciclo automatico giornaliero — comodo per il collaudo.
 5. Verifica che la risposta compaia nella scheda Comunicazioni della pratica, associata correttamente al thread.
 
 Solo dopo questo collaudo positivo estendi l'uso a fornitori reali.
@@ -80,10 +80,10 @@ Solo dopo questo collaudo positivo estendi l'uso a fornitori reali.
 ## Job in background
 
 - **Ricerca allestitori** e **invio RFQ**: avviati dalla dashboard, proseguono lato server anche se chiudi il browser (uso di `waitUntil`), con stato tracciato in `BackgroundJobRun` per evitare doppie esecuzioni dopo un riavvio.
-- **Polling Gmail** (`/api/cron/email-poll`): ogni 10 minuti (Vercel Cron), sincronizzazione incrementale tramite Gmail History API, idempotente (`gmailMessageId` univoco).
+- **Polling Gmail** (`/api/cron/email-poll`): automatico una volta al giorno (limite del piano Vercel Hobby: max 1 esecuzione/giorno per cron job), sincronizzazione incrementale tramite Gmail History API, idempotente (`gmailMessageId` univoco).
 - **Controllo scadenze** (`/api/cron/deadline-check`): una volta al giorno, rileva attività promesse e non ricevute e fornitori senza risposta, crea rischi con bozza di sollecito pronta.
 
-> Il piano Vercel Hobby limita la frequenza dei Cron Job (in alcuni casi a 1 esecuzione/giorno). Per il polling ogni 10 minuti in produzione è consigliato un piano Pro. In alternativa, richiama manualmente gli endpoint cron con l'header `Authorization: Bearer <CRON_SECRET>` durante il collaudo.
+> Con il piano Vercel Hobby entrambi i cron girano al massimo 1 volta al giorno. Per un controllo email più frequente (es. ogni 10 minuti) passa al piano Pro e cambia la schedule in `vercel.json` (es. `*/10 * * * *`). Nel frattempo, per test immediati, richiama manualmente l'endpoint con l'header `Authorization: Bearer <CRON_SECRET>`.
 
 ## Costi esterni (indicativi, variano nel tempo)
 

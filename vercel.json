@@ -1,6 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/email-poll", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/email-poll", "schedule": "0 9 * * *" },
     { "path": "/api/cron/deadline-check", "schedule": "0 6 * * *" }
   ]
 }
