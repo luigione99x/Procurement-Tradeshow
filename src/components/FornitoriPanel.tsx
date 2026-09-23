@@ -344,6 +344,13 @@ function InvioRFQBar({ praticaId, selectedIds, onDone }: { praticaId: string; se
           if (ultimo.status === "FALLITO") {
             setError(ultimo.errorMessage || "Generazione RFQ fallita");
           } else {
+            const falliti = ultimo.resultJson?.falliti as { fornitore: string; errore: string }[] | undefined;
+            if (falliti?.length) {
+              alert(
+                `Bozza creata per ${ultimo.resultJson.creati} fornitori. ${falliti.length} falliti (puoi rigenerarli singolarmente):\n` +
+                  falliti.map((f) => `- ${f.fornitore}: ${f.errore}`).join("\n")
+              );
+            }
             onDone();
             router.push(`/dashboard/pratiche/${praticaId}/comunicazioni?tab=rfq`);
             router.refresh();

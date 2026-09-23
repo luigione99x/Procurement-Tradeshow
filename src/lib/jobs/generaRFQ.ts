@@ -29,44 +29,55 @@ export async function eseguiGenerazioneRFQ(praticaId: string, fornitoreIds: stri
 
     const aiDisponibile = aiStatus().configured;
 
+    // Ogni fornitore è isolato nel proprio try/catch: su un lotto grande (es.
+    // 200 fornitori) un singolo errore transitorio (rate limit AI, risposta
+    // malformata) non deve annullare tutto il lavoro già fatto sugli altri.
+    // Chi fallisce viene segnalato e può essere rigenerato singolarmente.
+    let creati = 0;
+    const falliti: { fornitore: string; errore: string }[] = [];
     for (const f of conEmail) {
-      const { subject, body } = aiDisponibile
-        ? await generaTestoRFQ({
-            capitolatoMarkdown: capitolato.contentMarkdown,
-            fornitoreNome: f.nome,
-            briefPratica: pratica as unknown as Record<string, unknown>,
-            categoria: f.categoria,
-          })
-        : generaTestoRFQTemplate({
-            lingua: (pratica.lingua as "it" | "en") ?? "it",
-            fornitoreNome: f.nome,
-            categoria: f.categoria,
-            capitolato: capitolato.contentJson as unknown as CapitolatoContenuto,
-            pratica: {
-              codiceProgetto: pratica.codiceProgetto,
-              fieraNome: pratica.fieraNome,
-              citta: pratica.citta,
-              padiglione: pratica.padiglione,
-              dataInizioFiera: pratica.dataInizioFiera,
-              dataFineFiera: pratica.dataFineFiera,
-              dimensioneMq: pratica.dimensioneMq,
-              posizioneStand: pratica.posizioneStand,
-              scadenzaSceltaFornitore: pratica.scadenzaSceltaFornitore,
-              referenteAziendaleNome: pratica.referenteAziendaleNome,
-            },
-          });
-      await prisma.rFQInvio.create({
-        data: {
-          campaignId: campaign.id,
-          fornitoreId: f.id,
-          toEmail: f.email!,
-          subject,
-          bodyText: body,
-          allegatiIds: [],
-          status: "BOZZA",
-          dedupeKey: `${campaign.id}-${f.id}-${capitolato.id}`,
-        },
-      });
+      try {
+        const { subject, body } = aiDisponibile
+          ? await generaTestoRFQ({
+              capitolatoMarkdown: capitolato.contentMarkdown,
+              fornitoreNome: f.nome,
+              briefPratica: pratica as unknown as Record<string, unknown>,
+              categoria: f.categoria,
+            })
+          : generaTestoRFQTemplate({
+              lingua: (pratica.lingua as "it" | "en") ?? "it",
+              fornitoreNome: f.nome,
+              categoria: f.categoria,
+              capitolato: capitolato.contentJson as unknown as CapitolatoContenuto,
+              pratica: {
+                codiceProgetto: pratica.codiceProgetto,
+                fieraNome: pratica.fieraNome,
+                citta: pratica.citta,
+                padiglione: pratica.padiglione,
+                dataInizioFiera: pratica.dataInizioFiera,
+                dataFineFiera: pratica.dataFineFiera,
+                dimensioneMq: pratica.dimensioneMq,
+                posizioneStand: pratica.posizioneStand,
+                scadenzaSceltaFornitore: pratica.scadenzaSceltaFornitore,
+                referenteAziendaleNome: pratica.referenteAziendaleNome,
+              },
+            });
+        await prisma.rFQInvio.create({
+          data: {
+            campaignId: campaign.id,
+            fornitoreId: f.id,
+            toEmail: f.email!,
+            subject,
+            bodyText: body,
+            allegatiIds: [],
+            status: "BOZZA",
+            dedupeKey: `${campaign.id}-${f.id}-${capitolato.id}`,
+          },
+        });
+        creati++;
+      } catch (err) {
+        falliti.push({ fornitore: f.nome, errore: err instanceof Error ? err.message : "Errore sconosciuto" });
+      }
     }
 
     await prisma.backgroundJobRun.update({
@@ -74,7 +85,7 @@ export async function eseguiGenerazioneRFQ(praticaId: string, fornitoreIds: stri
       data: {
         status: "COMPLETATO",
         finishedAt: new Date(),
-        resultJson: { campaignId: campaign.id, creati: conEmail.length, senzaEmail },
+        resultJson: { campaignId: campaign.id, creati, senzaEmail, falliti },
       },
     });
 
@@ -82,7 +93,7 @@ export async function eseguiGenerazioneRFQ(praticaId: string, fornitoreIds: stri
       praticaId,
       actorType: "sistema",
       tipo: "rfq_bozza_creata",
-      descrizione: `Bozza RFQ creata per ${conEmail.length} fornitori${senzaEmail > 0 ? ` (${senzaEmail} senza email valida, esclusi)` : ""}`,
+      descrizione: `Bozza RFQ creata per ${creati} fornitori${senzaEmail > 0 ? ` (${senzaEmail} senza email valida, esclusi)` : ""}${falliti.length > 0 ? ` (${falliti.length} falliti, da rigenerare singolarmente)` : ""}`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Errore sconosciuto";
