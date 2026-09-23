@@ -5,7 +5,7 @@
 // il DB e' `importSuppliers`, usata dalla route /api/admin/fornitori/import.
 import * as XLSX from "xlsx";
 import { prisma } from "./db";
-import type { SupplierSourceType } from "@prisma/client";
+import type { SupplierSourceType, SupplierCategory } from "@prisma/client";
 
 export type SupportedFormat = "csv" | "tsv" | "xlsx" | "xls";
 
@@ -164,6 +164,37 @@ export function normalizeEmail(email: string | null | undefined): string | null 
 export function normalizeRagioneSociale(name: string | null | undefined): string | null {
   if (!name) return null;
   return name.trim().toLowerCase().replace(/\s+/g, " ") || null;
+}
+
+// Riconoscimento best-effort della colonna "categoria" (testo libero nel file
+// sorgente) verso i valori dell'enum SupplierCategory, per il punteggio di
+// compatibilità (Fase 6). Nessuna corrispondenza -> array vuoto: non si
+// inventa mai una categoria da un testo che non la suggerisce chiaramente.
+const CATEGORIA_KEYWORDS: [RegExp, SupplierCategory][] = [
+  [/allestit|stand builder|chiavi in mano/i, "STAND_BUILDER"],
+  [/general contractor/i, "GENERAL_CONTRACTOR"],
+  [/progett|design|render/i, "DESIGN"],
+  [/grafic|stampa|insegn/i, "GRAPHICS"],
+  [/illuminaz|luci\b/i, "LIGHTING"],
+  [/elettric|impianto elettrico/i, "ELECTRICAL"],
+  [/audio|video|\bav\b/i, "AV"],
+  [/arred|mobili|noleggio arred/i, "FURNITURE"],
+  [/trasport|logistic/i, "LOGISTICS"],
+  [/catering|ristoraz/i, "CATERING"],
+  [/internet|wifi|connettivit/i, "INTERNET"],
+  [/rigging|appendiment/i, "RIGGING"],
+  [/pulizi/i, "CLEANING"],
+  [/sicurezz|vigilanz/i, "SAFETY"],
+  [/smaltiment|rifiuti/i, "WASTE_DISPOSAL"],
+];
+
+export function normalizeCategoria(testo: string | null | undefined): SupplierCategory[] {
+  if (!testo) return [];
+  const trovate = new Set<SupplierCategory>();
+  for (const [re, categoria] of CATEGORIA_KEYWORDS) {
+    if (re.test(testo)) trovate.add(categoria);
+  }
+  return Array.from(trovate);
 }
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -373,6 +404,10 @@ export async function importSuppliers(params: {
         if (!existing.provincia && row.provincia) patch.provincia = row.provincia;
         if (!existing.regione && row.regione) patch.regione = row.regione;
         if (!existing.nomeCommerciale && row.nomeCommerciale) patch.nomeCommerciale = row.nomeCommerciale;
+        if (existing.categorie.length === 0) {
+          const categorie = normalizeCategoria(row.categoria);
+          if (categorie.length > 0) patch.categorie = categorie;
+        }
         if (Object.keys(patch).length > 0) {
           await prisma.supplier.update({
             where: { id: existing.id },
@@ -398,7 +433,10 @@ export async function importSuppliers(params: {
         regione: row.regione,
         paese: row.paese || "IT",
         noteInterne: [row.note, decision.motivoRevisione].filter(Boolean).join(" — ") || null,
-        categorie: [],
+        // Bug corretto: prima la colonna "categoria" veniva mappata e validata
+        // ma poi scartata qui senza mai essere salvata, azzerando qualunque
+        // segnale di categoria per il punteggio di compatibilità (Fase 6).
+        categorie: normalizeCategoria(row.categoria),
         sourceType,
         isProprietary,
         verificationStatus: "NON_VERIFICATO",

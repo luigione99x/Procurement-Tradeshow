@@ -3,6 +3,7 @@ import {
   normalizeDomain,
   normalizeEmail,
   normalizeRagioneSociale,
+  normalizeCategoria,
   isValidEmailFormat,
   parseFile,
   suggestMapping,
@@ -35,6 +36,24 @@ describe("isValidEmailFormat", () => {
     expect(isValidEmailFormat("info@esempio.it")).toBe(true);
     expect(isValidEmailFormat("non-una-email")).toBe(false);
     expect(isValidEmailFormat("info@")).toBe(false);
+  });
+});
+
+describe("normalizeCategoria", () => {
+  it("riconosce categorie note da testo libero italiano", () => {
+    expect(normalizeCategoria("Allestitore fieristico")).toEqual(["STAND_BUILDER"]);
+    expect(normalizeCategoria("Elettricista")).toEqual(["ELECTRICAL"]);
+    expect(normalizeCategoria("Noleggio arredi")).toEqual(["FURNITURE"]);
+  });
+
+  it("non inventa una categoria quando il testo non suggerisce chiaramente nulla", () => {
+    expect(normalizeCategoria("Servizi vari")).toEqual([]);
+    expect(normalizeCategoria(null)).toEqual([]);
+    expect(normalizeCategoria("")).toEqual([]);
+  });
+
+  it("riconosce più categorie quando il testo le menziona entrambe", () => {
+    expect(normalizeCategoria("Allestitore e grafica grande formato")).toEqual(["STAND_BUILDER", "GRAPHICS"]);
   });
 });
 

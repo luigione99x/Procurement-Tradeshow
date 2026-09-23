@@ -21,6 +21,7 @@ type Fornitore = {
   fonte: string;
   sourceType?: string;
   clientVisibility?: string;
+  compatibilityScore?: number | null;
 };
 
 const STATO_LABEL: Record<string, string> = {
@@ -196,6 +197,16 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
                 </label>
                 <div className="flex items-center gap-2">
                   {f.categoria && <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-100">{f.categoria}</span>}
+                  {f.compatibilityScore != null && (
+                    <span
+                      className={
+                        "badge " +
+                        (f.compatibilityScore >= 65 ? "bg-green-100 text-green-800" : f.compatibilityScore <= 35 ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600")
+                      }
+                    >
+                      compatibilità {f.compatibilityScore}
+                    </span>
+                  )}
                   <span className="badge bg-slate-100 text-slate-700">{STATO_LABEL[f.stato] ?? f.stato}</span>
                   <span className="badge bg-slate-50 text-slate-500 border border-slate-200">
                     {f.sourceType === "MIRALIS_DATABASE" ? "database Miralis" : f.fonte === "RICERCA_SERPER" ? "ricerca" : f.fonte === "STORICO_CLIENTE" ? "storico" : "manuale"}

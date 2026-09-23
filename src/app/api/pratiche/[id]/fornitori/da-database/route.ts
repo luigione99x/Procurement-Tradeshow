@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
 import { requireMiralisStaff } from "@/lib/authz";
+import { calcolaCompatibilita } from "@/lib/compatibilityScore";
 import { logAttivita } from "@/lib/audit";
 
 // Collega fornitori del database proprietario Miralis a un progetto (Sezione 9:
@@ -12,14 +13,15 @@ import { logAttivita } from "@/lib/audit";
 // bypass: clientVisibility non e' un parametro accettato dal body.
 const schema = z.object({
   supplierIds: z.array(z.string()).min(1),
+  categoria: z.string().optional(), // stessa categoria eventualmente selezionata in ricerca, per coerenza col punteggio mostrato
 });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
     requireMiralisStaff(user);
-    await getPraticaScoped(params.id, user);
-    const { supplierIds } = schema.parse(await req.json());
+    const pratica = await getPraticaScoped(params.id, user);
+    const { supplierIds, categoria } = schema.parse(await req.json());
 
     const suppliers = await prisma.supplier.findMany({
       where: { id: { in: supplierIds }, deletedAt: null },
@@ -35,8 +37,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const daCreare = suppliers.filter((s) => !collegatiSet.has(s.id));
 
     const creati = await prisma.$transaction(
-      daCreare.map((s) =>
-        prisma.fornitore.create({
+      daCreare.map((s) => {
+        // Punteggio calcolato allo stesso modo mostrato in ricerca (Fase 6),
+        // congelato al momento della selezione: cambiamenti successivi ai dati
+        // del fornitore proprietario non riscrivono retroattivamente le scelte già fatte.
+        const { punteggio } = calcolaCompatibilita(
+          {
+            categorie: s.categorie,
+            citta: s.citta,
+            provincia: s.provincia,
+            regione: s.regione,
+            areeServite: s.areeServite,
+            rating: s.rating,
+            puntualita: s.puntualita,
+            qualita: s.qualita,
+            capacitaRisposta: s.capacitaRisposta,
+            verificationStatus: s.verificationStatus,
+            contactability: s.contactability,
+          },
+          { categoriaRichiesta: categoria || null, cittaFiera: pratica.citta || null }
+        );
+        return prisma.fornitore.create({
           data: {
             praticaId: params.id,
             supplierId: s.id,
@@ -52,9 +73,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             sourceType: "MIRALIS_DATABASE",
             isProprietary: true,
             clientVisibility: "HIDDEN",
+            compatibilityScore: punteggio,
           },
-        })
-      )
+        });
+      })
     );
 
     await logAttivita({

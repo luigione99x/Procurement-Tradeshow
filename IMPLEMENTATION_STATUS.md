@@ -205,13 +205,43 @@ tab, dando l'impressione di un'unica cosa confusa invece di due strumenti distin
   ruolo staff; nuovo `OfferteClienteView.tsx` per la vista di sola lettura del cliente (redatta
   server-side, stessa protezione Sezione 6 già in uso).
 - **Test aggiunti**: `src/lib/negoziazioneTemplate.test.ts` (2 test). Totale ora 34 test, tutti verdi.
-- **Non fatto in questa fase**: punteggio di compatibilità per la shortlist (resta manuale), storico
-  negoziazione visibile in UI (oggi solo via `AuditLog`/`versionNumber`, nessuna vista "timeline" dedicata).
+- **Non fatto in questa fase**: punteggio di compatibilità per la shortlist (resta manuale, vedi Fase 6
+  appena completata), storico negoziazione visibile in UI (oggi solo via `AuditLog`/`versionNumber`, nessuna
+  vista "timeline" dedicata).
 
-## Fasi 6, 8-11 — non iniziate
+## Fase 6 — Shortlist con punteggio di compatibilità (completata)
 
-Shortlist con punteggio di compatibilità, Document Room con estrazione fatti, i18n IT/EN, duplicazione
-progetto, report finale.
+Verifica sui dati reali prima di implementare: i 201 fornitori importati (file sorgente = solo Nome
+azienda/Email/Indirizzo web) hanno **zero** valore su città, categorie, rating — un punteggio "ricco" basato
+su quei campi sarebbe stato identico (e quindi inutile) per tutti e 201. Prima di costruire l'algoritmo,
+sistemata la causa: la colonna "categoria" era già mappabile nell'importer ma veniva scartata silenziosamente
+al salvataggio (bug corretto), e i 201 fornitori reali sono stati retroattivamente taggati `STAND_BUILDER`
+sul Neon reale (evidenza diretta: il file sorgente si chiama "Allestitori", non un'invenzione).
+
+- **`src/lib/compatibilityScore.ts`**: punteggio deterministico 0-100 (mai una chiamata AI: è un ranking
+  interno, deve restare spiegabile). Parte da un valore neutro (50) e si sposta solo quando un segnale è
+  davvero disponibile (categoria, città/area servita rispetto alla fiera, storico qualità/puntualità,
+  verifica/contattabilità) — un dato mancante non penalizza mai, altrimenti il punteggio sarebbe solo rumore
+  vista la scarsità di dati reali oggi.
+- **`normalizeCategoria()`** in `supplierImport.ts`: riconoscimento best-effort di categoria da testo libero
+  (mappa parole chiave italiane ai 15 valori dell'enum `SupplierCategory`), usato sia in import sia nel
+  backfill; nessuna corrispondenza → array vuoto, mai un'invenzione.
+- **Wiring**: `GET /api/admin/fornitori` accetta ora `praticaId`+`categoria`, calcola il punteggio per
+  ciascun risultato e ordina per compatibilità decrescente; `AggiungiDaDatabaseModal.tsx` mostra un filtro
+  categoria e un badge di compatibilità (verde/grigio/rosso) con i motivi in tooltip; `POST
+  fornitori/da-database` congela il punteggio calcolato al momento della selezione su
+  `Fornitore.compatibilityScore` (non si riscrive retroattivamente se i dati del fornitore cambiano dopo);
+  badge di compatibilità aggiunto anche in `FornitoriPanel.tsx`.
+- **Test aggiunti**: `src/lib/compatibilityScore.test.ts` (6 test) + 3 nuovi test per `normalizeCategoria` in
+  `supplierImport.test.ts`. Totale ora 43 test, tutti verdi.
+- **Non fatto**: nessuna UI per assegnare/correggere manualmente `rating`/`puntualita`/`qualita` o le
+  categorie di un fornitore esistente (i campi esistono sul modello, nessuna route li scrive ancora) — senza
+  quello il fattore "storico qualità" resta a zero informazione per tutto il database reale, non solo per i
+  201 importati.
+
+## Fasi 8-11 — non iniziate
+
+Document Room con estrazione fatti, i18n IT/EN, duplicazione progetto, report finale.
 
 ## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
@@ -228,7 +258,7 @@ viene creato una sola volta, controllo per nome).
 
 ## Test automatici (Sezione 36) — avviati
 
-Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 34 test, tutti verdi, concentrati
+Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 43 test, tutti verdi, concentrati
 sulle funzioni pure che non richiedono un DB (eseguibili anche in questo ambiente sandbox senza accesso
 diretto a Postgres):
 
@@ -247,6 +277,9 @@ diretto a Postgres):
   come tali, mai inventati.
 - `src/lib/negoziazioneTemplate.test.ts` — la bozza BAFO chiede la migliore offerta finale, la bozza
   puntuale include la nota specifica dello staff nel corpo dell'email.
+- `src/lib/compatibilityScore.test.ts` — un dato mancante non penalizza mai (resta neutro 50); categoria
+  compatibile premia, categoria diversa penalizza; stessa città pesa più di una semplice area servita;
+  verifica/contattabilità problematica penalizza pesantemente; il punteggio resta sempre 0-100.
 
 **Non ancora coperto** (richiede un DB reale, non eseguibile da questo sandbox): `planImport`/
 `importSuppliers` (dedup contro l'archivio esistente), tenant isolation end-to-end (`scope.ts`), test
@@ -258,7 +291,7 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 - `npx tsc --noEmit` — pulito (rieseguito dopo ogni fase, incluse le modifiche a classificazione/reveal e i
   nuovi fallback senza AI).
 - `npm run build` (`prisma generate && next build`) — completa con successo, tutte le route registrate.
-- `npm run test` (Vitest) — 34/34 test verdi.
+- `npm run test` (Vitest) — 43/43 test verdi.
 - `npm run lint` — **non verificabile**: il prototipo originale non aveva ESLint configurato e `next lint`
   richiede una configurazione interattiva al primo avvio, non disponibile in questo ambiente non interattivo.
 - Import reale delle 201 aziende verificato via query dirette su Neon (conteggi, duplicati, revisioni).
@@ -266,6 +299,8 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
   sull'unico utente preesistente.
 - Dati demo verificati via query diretta: 20 fornitori, 5 rivelati, 4 offerte, fee calcolata €1.950
   (corrispondenza esatta con i numeri di Sezione 35).
+- Backfill categorie eseguito sul Neon reale e verificato via query diretta: tutti i 201 fornitori
+  `MIRALIS_DATABASE` ora hanno `categorie = ['STAND_BUILDER']` (prima: 0 su 201).
 
 ## Credenziali create in questa sessione
 
@@ -286,6 +321,8 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
    che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore, e che
    `OFFERTA_REVISIONATA` crei correttamente una nuova versione dell'offerta.
 4. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
-5. Shortlist con punteggio di compatibilità (Fase 6) e Document Room con estrazione fatti (Fase 8).
+5. Document Room con estrazione fatti (Fase 8); UI per assegnare/correggere rating/categorie di un
+   fornitore esistente (sbloccherebbe il fattore "storico qualità" del punteggio di compatibilità, oggi a
+   zero informazione per tutto il database reale).
 6. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
    inline dal prototipo originale, non referenzia la baseline versionata).

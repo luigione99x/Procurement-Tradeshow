@@ -7,13 +7,35 @@ type SupplierRow = {
   citta: string | null;
   dominioNormalizzato: string | null;
   emailGenerale: string | null;
+  compatibilityScore?: number;
+  compatibilityMotivi?: string[];
 };
+
+const CATEGORIE = [
+  { value: "", label: "Qualsiasi categoria" },
+  { value: "GENERAL_CONTRACTOR", label: "General contractor" },
+  { value: "STAND_BUILDER", label: "Allestitore stand" },
+  { value: "DESIGN", label: "Progettazione/design" },
+  { value: "GRAPHICS", label: "Grafica" },
+  { value: "LIGHTING", label: "Illuminazione" },
+  { value: "ELECTRICAL", label: "Elettricista" },
+  { value: "AV", label: "Audio/video" },
+  { value: "FURNITURE", label: "Arredi" },
+  { value: "LOGISTICS", label: "Trasporti/logistica" },
+  { value: "CATERING", label: "Catering" },
+  { value: "INTERNET", label: "Internet" },
+  { value: "RIGGING", label: "Rigging" },
+  { value: "CLEANING", label: "Pulizie" },
+  { value: "SAFETY", label: "Sicurezza" },
+  { value: "WASTE_DISPOSAL", label: "Smaltimento rifiuti" },
+];
 
 // Ricerca nel database proprietario Miralis (Sezione 8/9) e collega i fornitori
 // scelti al progetto corrente come candidati. Componente usato solo lato staff
 // Miralis (la pagina che lo monta e' gia' riservata via requireUser + isMiralisStaff).
 export default function AggiungiDaDatabaseModal({ praticaId, onClose, onAggiunti }: { praticaId: string; onClose: () => void; onAggiunti: () => void }) {
   const [q, setQ] = useState("");
+  const [categoria, setCategoria] = useState("");
   const [risultati, setRisultati] = useState<SupplierRow[]>([]);
   const [selezionati, setSelezionati] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -27,6 +49,8 @@ export default function AggiungiDaDatabaseModal({ praticaId, onClose, onAggiunti
     setCercato(true);
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (categoria) params.set("categoria", categoria);
+    params.set("praticaId", praticaId);
     params.set("take", "40");
     const res = await fetch(`/api/admin/fornitori?${params.toString()}`);
     setLoading(false);
@@ -54,7 +78,7 @@ export default function AggiungiDaDatabaseModal({ praticaId, onClose, onAggiunti
     const res = await fetch(`/api/pratiche/${praticaId}/fornitori/da-database`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ supplierIds: Array.from(selezionati) }),
+      body: JSON.stringify({ supplierIds: Array.from(selezionati), categoria: categoria || undefined }),
     });
     setSalvando(false);
     if (res.ok) {
@@ -83,10 +107,22 @@ export default function AggiungiDaDatabaseModal({ praticaId, onClose, onAggiunti
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && cerca()}
           />
+          <select className="input w-48" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            {CATEGORIE.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
           <button className="btn-secondary" onClick={cerca} disabled={loading}>
             {loading ? "..." : "Cerca"}
           </button>
         </div>
+        {cercato && risultati.length > 0 && (
+          <p className="text-xs text-slate-400 px-4 pt-2">
+            Ordinati per compatibilità con questo progetto (città della fiera{categoria ? " e categoria selezionata" : ""}).
+          </p>
+        )}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {!cercato && <p className="text-sm text-slate-400">Cerca un'azienda nel database proprietario Miralis per aggiungerla come candidato a questo progetto.</p>}
           {cercato && risultati.length === 0 && !loading && <p className="text-sm text-slate-400">Nessun risultato.</p>}
@@ -94,7 +130,20 @@ export default function AggiungiDaDatabaseModal({ praticaId, onClose, onAggiunti
             <label key={s.id} className="flex items-center gap-3 border border-slate-200 rounded p-2 cursor-pointer hover:bg-slate-50">
               <input type="checkbox" checked={selezionati.has(s.id)} onChange={() => toggle(s.id)} />
               <div className="flex-1">
-                <div className="font-medium text-sm">{s.ragioneSociale}</div>
+                <div className="font-medium text-sm flex items-center gap-2">
+                  {s.ragioneSociale}
+                  {s.compatibilityScore != null && (
+                    <span
+                      className={
+                        "badge text-[10px] " +
+                        (s.compatibilityScore >= 65 ? "bg-green-100 text-green-800" : s.compatibilityScore <= 35 ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600")
+                      }
+                      title={s.compatibilityMotivi?.join("; ")}
+                    >
+                      compatibilità {s.compatibilityScore}
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-slate-500">
                   {s.citta || "—"} {s.dominioNormalizzato ? `· ${s.dominioNormalizzato}` : ""} {s.emailGenerale ? `· ${s.emailGenerale}` : ""}
                 </div>
