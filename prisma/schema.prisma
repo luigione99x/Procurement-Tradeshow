@@ -789,6 +789,8 @@ model SavingsBaseline {
   createdBy         User           @relation("BaselineCreatedBy", fields: [createdByUserId], references: [id])
   createdAt         DateTime       @default(now())
 
+  decisioni Decisione[]
+
   @@unique([praticaId, versionNumber])
   @@index([praticaId, status])
 }
@@ -807,6 +809,11 @@ model Decisione {
   referenteFornitore    String?
   dateConcordate        Json?
   note                  String?
+
+  // Baseline versionata usata (se presente) per calcolare prezzoInizialeRiferimento
+  // (Sezione 3): tracciabilità di quale versione della baseline ha fondato la fee.
+  baselineId String?
+  baseline   SavingsBaseline? @relation(fields: [baselineId], references: [id])
 
   prezzoInizialeRiferimento Decimal? @db.Decimal(12, 2)
   provaPrezzoInizialeDocId  String? // documento/email che prova il prezzo iniziale

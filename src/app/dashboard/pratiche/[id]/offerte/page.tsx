@@ -7,13 +7,14 @@ import OfferteClienteView from "@/components/OfferteClienteView";
 
 export default async function OffertePage({ params }: { params: { id: string } }) {
   const user = await requireUser();
-  const [offerteRaw, decisione] = await Promise.all([
+  const [offerteRaw, decisione, baselineLocked] = await Promise.all([
     prisma.offerta.findMany({
       where: { praticaId: params.id, stato: { not: "SCARTATA" } },
       include: { fornitore: true, fieldSources: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.decisione.findUnique({ where: { praticaId: params.id }, include: { offertaScelta: { include: { fornitore: true } } } }),
+    prisma.savingsBaseline.findFirst({ where: { praticaId: params.id, status: "LOCKED" }, orderBy: { versionNumber: "desc" } }),
   ]);
 
   // Dopo un round di negoziazione (BAFO/puntuale) un fornitore può avere più
@@ -59,7 +60,13 @@ export default async function OffertePage({ params }: { params: { id: string } }
           </div>
         </div>
       )}
-      {!decisione && <OffertePanel praticaId={params.id} initial={serializzate as any} />}
+      {!decisione && (
+        <OffertePanel
+          praticaId={params.id}
+          initial={serializzate as any}
+          baselineBloccata={baselineLocked ? { amount: baselineLocked.amount.toString() } : null}
+        />
+      )}
     </div>
   );
 }

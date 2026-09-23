@@ -271,10 +271,11 @@ derivare le attività da contratto e manuale espositore, lavorava sempre a mani 
 - **Bug corretto**: `CONTRATTO` e `OFFERTA_PDF` erano tipi di documento validi nello schema (e `CONTRATTO` è
   cercato esplicitamente dalla generazione del piano) ma non erano selezionabili nel form di upload — aggiunti
   alla lista.
-- **Rischio noto**: `pdf-parse` v2 dipende da `@napi-rs/canvas` (binario nativo). Non usato dal solo percorso
-  di estrazione testo qui implementato, ma è una dipendenza di build in più: da verificare che il build
-  Vercel la installi senza problemi (verificato in questa sessione solo nel sandbox locale, non ancora su un
-  deploy Vercel completo dopo questo cambiamento specifico).
+- **Rischio noto, verificato**: `pdf-parse` v2 dipende da `@napi-rs/canvas` (binario nativo), non usato dal
+  solo percorso di estrazione testo qui implementato ma comunque una dipendenza di build in più. Il deploy
+  Vercel di questo commit (`deebe14`) è risultato `READY` — il binario si installa correttamente nell'ambiente
+  di build Vercel. Non ancora verificata l'estrazione su un PDF reale in produzione (solo nel sandbox locale
+  con file di testo semplice, vedi test sotto).
 - **Test aggiunti**: `src/lib/documentExtraction.test.ts` (4 test, sui percorsi deterministici: testo
   semplice, formato non supportato, limite di dimensione, contenuto vuoto — non testa il parsing PDF vero e
   proprio, che dipende dalla libreria esterna). Totale ora 47 test, tutti verdi.
@@ -282,6 +283,34 @@ derivare le attività da contratto e manuale espositore, lavorava sempre a mani 
   automaticamente clausole contrattuali specifiche) — il testo estratto alimenta comunque l'AI generativa
   esistente (capitolato/piano/assistente) che può interpretarlo; senza AI configurata, il testo resta
   comunque disponibile ma non riassunto/interpretato. Nessun estrattore per `.docx`/immagini con OCR.
+
+## Fase 3 (continua) — Baseline del risparmio collegata al calcolo fee (completata)
+
+Verifica prima di implementare: il modello `SavingsBaseline` (versionato, tipi Sezione 3, stati
+DRAFT/APPROVED/LOCKED/SUPERSEDED) esisteva sullo schema ma **zero righe di codice lo usavano** — nessuna
+route lo scriveva o leggeva. La fee veniva calcolata da un numero digitato a mano nel form di decisione
+finale, senza fonte documentata né approvazione, in contraddizione con la regola del prodotto ("il risparmio
+non è mai contro il budget dichiarato, sempre contro una baseline documentata e approvata").
+
+- Migrazione applicata sul Neon reale: `Decisione.baselineId` (nullable, FK verso `SavingsBaseline`) per
+  tracciabilità di quale versione della baseline ha fondato una fee.
+- `POST /api/pratiche/[id]/baseline` (staff Miralis): crea/aggiorna la baseline in bozza; se l'ultima
+  versione è già `APPROVED`/`LOCKED`, sostituirla richiede un `supersedeReason` esplicito e la versione
+  precedente passa a `SUPERSEDED` (mai cancellata, come da commento originale sul modello).
+  `POST .../baseline/approve` e `POST .../baseline/lock` (staff Miralis) fanno avanzare lo stato.
+- `POST /api/pratiche/[id]/decisione`: se esiste una baseline `LOCKED`, il suo importo sostituisce
+  automaticamente `prezzoInizialeRiferimento` (mai più da ridigitare a mano) e la sua fonte
+  (`documentoId`/`offertaId`, già passata per l'approvazione) soddisfa `provaPrezzoInizialeDocId` — lo staff
+  deve fornire solo la prova del prezzo *finale* negoziato. Senza baseline bloccata, il comportamento
+  precedente (inserimento manuale) resta invariato, nessuna regressione.
+- Nuovo `BaselinePanel.tsx` (staff, tab Brief): imposta/sostituisce/approva/blocca la baseline.
+  `BaselineClienteView.tsx`: riepilogo di sola lettura per il cliente, mostrato solo se
+  `APPROVED`/`LOCKED` (una bozza interna non è un'informazione su cui il cliente debba fare affidamento).
+  `OffertePanel.tsx` avvisa lo staff quando una baseline bloccata renderà superflui i campi manuali, invece
+  di lasciarli compilare dati che verranno silenziosamente ignorati.
+- **Non fatto**: nessuna UI per collegare la baseline a un `documentoId`/`offertaId` specifico (il campo
+  esiste nello schema e nella route, ma il form non lo espone ancora — oggi la baseline è sempre
+  `note`-based, senza un riferimento cliccabile alla fonte).
 
 ## Fasi 9-11 — non iniziate
 
@@ -368,8 +397,9 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
    che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore, e che
    `OFFERTA_REVISIONATA` crei correttamente una nuova versione dell'offerta.
 4. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
-5. Verificare che il build Vercel installi correttamente `pdf-parse`/`@napi-rs/canvas` (binario nativo) e
-   che l'estrazione testo funzioni su un PDF reale in produzione, non solo nel sandbox locale.
-6. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
-   inline dal prototipo originale, non referenzia la baseline versionata).
+5. Verificare l'estrazione testo su un PDF reale in produzione (build Vercel già confermata `READY` con la
+   nuova dipendenza `pdf-parse`/`@napi-rs/canvas`, manca solo il collaudo con un file vero).
+6. Collaudare il flusso baseline → decisione end-to-end: impostare/approvare/bloccare una baseline nella
+   scheda Brief, poi registrare la decisione finale e verificare che `prezzoInizialeRiferimento` venga
+   effettivamente preso dalla baseline invece che dal form.
 7. i18n IT/EN completo, duplicazione progetto, report finale (Fasi 9-11).

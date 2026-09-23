@@ -41,10 +41,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const esistente = await prisma.decisione.findUnique({ where: { praticaId: params.id } });
     if (esistente) throw new ApiError(400, "È già stata registrata una decisione per questa pratica");
 
+    // Se esiste una baseline LOCKED (Sezione 3), è la fonte autorevole del
+    // prezzo iniziale: sostituisce l'inserimento manuale invece di richiedere
+    // allo staff di ridigitare un numero già approvato. La "prova" del prezzo
+    // iniziale è la fonte con cui la baseline stessa è stata approvata
+    // (documento o offerta comparabile), non un campo da ricompilare a mano.
+    const baseline = await prisma.savingsBaseline.findFirst({
+      where: { praticaId: params.id, status: "LOCKED" },
+      orderBy: { versionNumber: "desc" },
+    });
+
+    const prezzoInizialeRiferimento = baseline ? Number(baseline.amount) : body.prezzoInizialeRiferimento ?? null;
+    const provaPrezzoInizialeDocId = baseline ? baseline.documentoId || baseline.offertaId || null : body.provaPrezzoInizialeDocId ?? null;
+
     const fee = calcolaFee({
-      prezzoIniziale: body.prezzoInizialeRiferimento ?? null,
+      prezzoIniziale: prezzoInizialeRiferimento,
       prezzoFinale: body.prezzoFinale ?? null,
-      provaPrezzoInizialeDocId: body.provaPrezzoInizialeDocId ?? null,
+      provaPrezzoInizialeDocId,
       provaPrezzoFinaleDocId: body.provaPrezzoFinaleDocId ?? null,
     });
 
@@ -52,13 +65,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       data: {
         praticaId: params.id,
         offertaSceltaId: body.offertaSceltaId,
+        baselineId: baseline?.id || null,
         contrattoDocumentoId: body.contrattoDocumentoId || null,
         prezzoFinale: body.prezzoFinale ?? null,
         referenteFornitore: body.referenteFornitore || null,
         dateConcordate: body.dateConcordate || undefined,
         note: body.note || null,
-        prezzoInizialeRiferimento: body.prezzoInizialeRiferimento ?? null,
-        provaPrezzoInizialeDocId: body.provaPrezzoInizialeDocId || null,
+        prezzoInizialeRiferimento,
+        provaPrezzoInizialeDocId,
         provaPrezzoFinaleDocId: body.provaPrezzoFinaleDocId || null,
         risparmioVerificabile: fee.risparmioVerificabile,
         risparmioCalcolato: fee.risparmioCalcolato,

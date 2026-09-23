@@ -86,7 +86,15 @@ function Cell({ offerta, praticaId, field, onSaved }: { offerta: Offerta; pratic
 
 type NegoziazioneState = { threadId: string; draft: { subject: string; body: string } };
 
-export default function OffertePanel({ praticaId, initial }: { praticaId: string; initial: Offerta[] }) {
+export default function OffertePanel({
+  praticaId,
+  initial,
+  baselineBloccata,
+}: {
+  praticaId: string;
+  initial: Offerta[];
+  baselineBloccata?: { amount: string } | null;
+}) {
   const router = useRouter();
   const [offerte, setOfferte] = useState(initial);
   const [domandeState, setDomandeState] = useState<Record<string, { threadId: string; draft: { subject: string; body: string } }>>({});
@@ -283,13 +291,26 @@ export default function OffertePanel({ praticaId, initial }: { praticaId: string
           offerta={offerte.find((o) => o.id === showDecisione)!}
           onClose={() => setShowDecisione(null)}
           onDone={() => router.refresh()}
+          baselineBloccata={baselineBloccata}
         />
       )}
     </div>
   );
 }
 
-function DecisioneForm({ praticaId, offerta, onClose, onDone }: { praticaId: string; offerta: Offerta; onClose: () => void; onDone: () => void }) {
+function DecisioneForm({
+  praticaId,
+  offerta,
+  onClose,
+  onDone,
+  baselineBloccata,
+}: {
+  praticaId: string;
+  offerta: Offerta;
+  onClose: () => void;
+  onDone: () => void;
+  baselineBloccata?: { amount: string } | null;
+}) {
   const [form, setForm] = useState({
     contrattoDocumentoId: "",
     prezzoFinale: offerta.prezzo || "",
@@ -346,13 +367,24 @@ function DecisioneForm({ praticaId, offerta, onClose, onDone }: { praticaId: str
             <input className="input" value={form.contrattoDocumentoId} onChange={(e) => setForm((f) => ({ ...f, contrattoDocumentoId: e.target.value }))} />
           </div>
           <div className="border-t border-slate-200 pt-3">
-            <p className="text-xs text-slate-500 mb-2">
-              Calcolo fee di successo (opzionale): il risparmio è valido solo tra prezzo iniziale e finale della STESSA fornitura, a parità di specifiche, con prova documentale di entrambi. Senza prove, la fee resta a zero.
-            </p>
-            <label className="label">Prezzo iniziale di riferimento (€)</label>
-            <input className="input mb-2" type="number" value={form.prezzoInizialeRiferimento} onChange={(e) => setForm((f) => ({ ...f, prezzoInizialeRiferimento: e.target.value }))} />
-            <label className="label">ID documento prova prezzo iniziale</label>
-            <input className="input mb-2" value={form.provaPrezzoInizialeDocId} onChange={(e) => setForm((f) => ({ ...f, provaPrezzoInizialeDocId: e.target.value }))} />
+            {baselineBloccata ? (
+              <p className="text-xs text-slate-500 mb-2">
+                Il prezzo iniziale di riferimento userà automaticamente la baseline bloccata (€{baselineBloccata.amount}): non serve
+                reinserirlo qui.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-slate-500 mb-2">
+                  Calcolo fee di successo (opzionale): il risparmio è valido solo tra prezzo iniziale e finale della STESSA fornitura, a
+                  parità di specifiche, con prova documentale di entrambi. Senza prove, la fee resta a zero. Meglio ancora: imposta una
+                  baseline nella scheda Brief prima di registrare la decisione, invece di inserire questi dati qui ogni volta.
+                </p>
+                <label className="label">Prezzo iniziale di riferimento (€)</label>
+                <input className="input mb-2" type="number" value={form.prezzoInizialeRiferimento} onChange={(e) => setForm((f) => ({ ...f, prezzoInizialeRiferimento: e.target.value }))} />
+                <label className="label">ID documento prova prezzo iniziale</label>
+                <input className="input mb-2" value={form.provaPrezzoInizialeDocId} onChange={(e) => setForm((f) => ({ ...f, provaPrezzoInizialeDocId: e.target.value }))} />
+              </>
+            )}
             <label className="label">ID documento prova prezzo finale</label>
             <input className="input" value={form.provaPrezzoFinaleDocId} onChange={(e) => setForm((f) => ({ ...f, provaPrezzoFinaleDocId: e.target.value }))} />
           </div>

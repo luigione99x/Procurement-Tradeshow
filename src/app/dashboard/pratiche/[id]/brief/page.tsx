@@ -1,16 +1,22 @@
 import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
+import { isMiralisStaff } from "@/lib/authz";
 import BriefForm from "@/components/BriefForm";
 import DocumentiUploader from "@/components/DocumentiUploader";
 import QualificazioneChat from "@/components/QualificazioneChat";
 import CapitolatoPanel from "@/components/CapitolatoPanel";
+import BaselinePanel from "@/components/BaselinePanel";
+import BaselineClienteView from "@/components/BaselineClienteView";
 
 export default async function BriefPage({ params }: { params: { id: string } }) {
   const praticaId = params.id;
-  const [pratica, documenti, chatMessages, capitolatoVersioni] = await Promise.all([
+  const user = await requireUser();
+  const [pratica, documenti, chatMessages, capitolatoVersioni, ultimaBaseline] = await Promise.all([
     prisma.pratica.findUnique({ where: { id: praticaId } }),
     prisma.documento.findMany({ where: { praticaId }, orderBy: { uploadedAt: "desc" } }),
     prisma.chatMessage.findMany({ where: { praticaId, context: "QUALIFICAZIONE" }, orderBy: { createdAt: "asc" } }),
     prisma.capitolatoVersion.findMany({ where: { praticaId }, orderBy: { versionNumber: "desc" } }),
+    prisma.savingsBaseline.findFirst({ where: { praticaId }, orderBy: { versionNumber: "desc" } }),
   ]);
 
   if (!pratica) return null;
@@ -89,6 +95,31 @@ export default async function BriefPage({ params }: { params: { id: string } }) 
           createdAt: v.createdAt.toISOString(),
         }))}
       />
+      {isMiralisStaff(user!) ? (
+        <BaselinePanel
+          praticaId={praticaId}
+          ultima={
+            ultimaBaseline
+              ? {
+                  id: ultimaBaseline.id,
+                  versionNumber: ultimaBaseline.versionNumber,
+                  type: ultimaBaseline.type,
+                  amount: ultimaBaseline.amount.toString(),
+                  documentoId: ultimaBaseline.documentoId,
+                  offertaId: ultimaBaseline.offertaId,
+                  note: ultimaBaseline.note,
+                  status: ultimaBaseline.status,
+                  supersedeReason: ultimaBaseline.supersedeReason,
+                }
+              : null
+          }
+        />
+      ) : (
+        ultimaBaseline &&
+        (ultimaBaseline.status === "APPROVED" || ultimaBaseline.status === "LOCKED") && (
+          <BaselineClienteView tipo={ultimaBaseline.type} amount={ultimaBaseline.amount.toString()} />
+        )
+      )}
     </div>
   );
 }
