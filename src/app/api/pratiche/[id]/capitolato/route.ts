@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError } from "@/lib/scope";
 import { generaCapitolato } from "@/lib/openai";
 import { generaCapitolatoTemplate } from "@/lib/capitolatoTemplate";
-import { openaiStatus } from "@/lib/integrations";
+import { aiStatus } from "@/lib/integrations";
 import { logAttivita } from "@/lib/audit";
 
 export const maxDuration = 60;
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Come per la RFQ (Sezione 13), il capitolato resta generabile anche senza
     // OpenAI configurata: senza AI si riorganizzano deterministicamente le
     // risposte già fornite in qualificazione, senza dedurre nulla di implicito.
-    const { json, markdown } = openaiStatus().configured
+    const { json, markdown } = aiStatus().configured
       ? await generaCapitolato({
           briefPratica: pratica as unknown as Record<string, unknown>,
           qualificazione: (pratica.qualificazione as Record<string, unknown>) || {},

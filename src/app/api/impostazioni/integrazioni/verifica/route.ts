@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authOrThrow, handleApiError } from "@/lib/scope";
+import { requireMiralisStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
-import { openaiStatus, serperStatus, gmailStatus } from "@/lib/integrations";
+import { openaiStatus, anthropicStatus, serperStatus, gmailStatus } from "@/lib/integrations";
 import { getGmailProfile } from "@/lib/gmail";
 import { serperSearch } from "@/lib/serper";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
     const user = await authOrThrow();
-    const { provider } = (await req.json()) as { provider: "OPENAI" | "SERPER" | "GMAIL" };
+    requireMiralisStaff(user);
+    const { provider } = (await req.json()) as { provider: "OPENAI" | "ANTHROPIC" | "SERPER" | "GMAIL" };
 
     let connected = false;
     let lastError: string | null = null;
@@ -23,6 +26,15 @@ export async function POST(req: NextRequest) {
         const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
         const models = await client.models.list();
         connected = (models.data?.length || 0) >= 0;
+      } else if (provider === "ANTHROPIC") {
+        if (!anthropicStatus().configured) throw new Error("ANTHROPIC_API_KEY non impostata");
+        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        await client.messages.create({
+          model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5",
+          max_tokens: 8,
+          messages: [{ role: "user", content: "ping" }],
+        });
+        connected = true;
       } else if (provider === "SERPER") {
         if (!serperStatus().configured) throw new Error("SERPER_API_KEY non impostata");
         await serperSearch("test connessione allestitori fiere");

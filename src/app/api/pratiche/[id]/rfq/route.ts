@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
-import { openaiStatus } from "@/lib/integrations";
+import { aiStatus } from "@/lib/integrations";
 import { generaTestoRFQ, type CapitolatoContenuto } from "@/lib/openai";
 import { generaTestoRFQTemplate } from "@/lib/rfqTemplate";
 import { logAttivita } from "@/lib/audit";
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // usa un template strutturato deterministico come fallback, cosi' l'invio
     // RFQ resta utilizzabile a costo zero. Con OpenAI configurata la prosa e'
     // più naturale ma il contenuto sostanziale (campi richiesti) è lo stesso.
-    const aiDisponibile = openaiStatus().configured;
+    const aiDisponibile = aiStatus().configured;
 
     const { fornitoreIds } = (await req.json()) as { fornitoreIds: string[] };
     if (!fornitoreIds?.length) throw new ApiError(400, "Seleziona almeno un fornitore");

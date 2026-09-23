@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
-import { requireOpenAI, requireSerper } from "@/lib/integrations";
+import { requireAI, requireSerper } from "@/lib/integrations";
 import { eseguiRicercaFornitori } from "@/lib/jobs/ricercaFornitori";
 import { logAttivita } from "@/lib/audit";
 
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const user = await authOrThrow();
     const pratica = await getPraticaScoped(params.id, user);
-    requireOpenAI();
+    requireAI();
     requireSerper();
 
     const capitolatoApprovato = await prisma.capitolatoVersion.findFirst({

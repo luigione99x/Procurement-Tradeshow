@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db";
 import { generaBozzaFollowUpAttivita, generaBozzaSollecito } from "@/lib/openai";
 import { logAttivita } from "@/lib/audit";
-import { openaiStatus } from "@/lib/integrations";
+import { aiStatus } from "@/lib/integrations";
 
 const GIORNI_SENZA_RISPOSTA_SOGLIA = 5;
 
 export async function eseguiControlloScadenze() {
-  const aiDisponibile = openaiStatus().configured;
+  const aiDisponibile = aiStatus().configured;
   let rischiCreati = 0;
 
   const praticheAttive = await prisma.pratica.findMany({

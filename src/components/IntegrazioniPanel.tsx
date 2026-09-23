@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 type Integrazione = {
-  provider: "OPENAI" | "SERPER" | "GMAIL";
+  provider: "OPENAI" | "ANTHROPIC" | "SERPER" | "GMAIL";
   configured: boolean;
   label: string;
   missingHint: string;
@@ -12,6 +12,7 @@ type Integrazione = {
 
 const ISTRUZIONI: Record<string, string> = {
   OPENAI: "Crea una chiave su platform.openai.com e impostala come variabile d'ambiente OPENAI_API_KEY nel progetto Vercel (Settings → Environment Variables), poi ridistribuisci.",
+  ANTHROPIC: "Crea una chiave su console.anthropic.com e impostala come variabile d'ambiente ANTHROPIC_API_KEY nel progetto Vercel (Settings → Environment Variables), poi ridistribuisci. Se sia OpenAI che Anthropic sono configurate, OpenAI viene provata per prima e Claude usato come riserva automatica in caso di errore.",
   SERPER: "Crea un account su serper.dev, copia la API key e impostala come SERPER_API_KEY nelle variabili d'ambiente del progetto Vercel.",
   GMAIL:
     "1) Crea un progetto in Google Cloud Console e abilita la Gmail API. 2) Crea credenziali OAuth2 (tipo 'Applicazione web', redirect URI: https://developers.google.com/oauthplayground). 3) Vai su https://developers.google.com/oauthplayground, imposta le tue credenziali (icona ingranaggio → Use your own OAuth credentials), autorizza gli scope gmail.send, gmail.readonly, gmail.modify con l'account Gmail dedicato, e genera un refresh token. 4) Imposta GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_ADDRESS nelle variabili d'ambiente del progetto.",

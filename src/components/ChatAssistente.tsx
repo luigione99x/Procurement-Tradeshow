@@ -8,8 +8,13 @@ type Msg = {
   citazioni?: { tipo: string; ref: string; snippet: string }[] | null;
 };
 
-export default function ChatAssistente({ praticaId }: { praticaId: string }) {
-  const [open, setOpen] = useState(false);
+// "floating" (default): bolla fluttuante su ogni tab della pratica, per uso rapido.
+// "embedded": pannello a tutta larghezza nella tab dedicata "Assistente", sempre
+// aperto — usato per tenere l'assistente AI di progetto visivamente separato dal
+// tool di sourcing/vendita fornitori (tab "Fornitori"), invece di sovrapporsi ad
+// esso come bolla fluttuante.
+export default function ChatAssistente({ praticaId, variant = "floating" }: { praticaId: string; variant?: "floating" | "embedded" }) {
+  const [open, setOpen] = useState(variant === "embedded");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,7 +56,7 @@ export default function ChatAssistente({ praticaId }: { praticaId: string }) {
     }
   }
 
-  if (!open) {
+  if (variant === "floating" && !open) {
     return (
       <button
         onClick={() => setOpen(true)}
@@ -63,15 +68,25 @@ export default function ChatAssistente({ praticaId }: { praticaId: string }) {
     );
   }
 
+  const wrapperClass =
+    variant === "embedded"
+      ? "card max-w-2xl mx-auto w-full h-[34rem] flex flex-col"
+      : "fixed bottom-6 right-6 w-96 max-w-[calc(100vw-2rem)] h-[32rem] bg-white rounded-lg shadow-2xl border border-slate-200 flex flex-col z-50";
+  const headerClass =
+    "flex items-center justify-between border-b border-slate-200 " + (variant === "embedded" ? "pb-3 mb-3" : "px-4 py-3");
+  const bodyClass = "flex-1 overflow-y-auto space-y-3 text-sm " + (variant === "embedded" ? "pr-1" : "px-4 py-3");
+
   return (
-    <div className="fixed bottom-6 right-6 w-96 max-w-[calc(100vw-2rem)] h-[32rem] bg-white rounded-lg shadow-2xl border border-slate-200 flex flex-col z-50">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-        <span className="font-medium text-sm">Assistente pratica</span>
-        <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-700">
-          ✕
-        </button>
+    <div className={wrapperClass}>
+      <div className={headerClass}>
+        <span className="font-medium text-sm">Il tuo project manager AI</span>
+        {variant === "floating" && (
+          <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-700">
+            ✕
+          </button>
+        )}
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm">
+      <div className={bodyClass}>
         {messages.length === 0 && (
           <p className="text-slate-400">
             Chiedi ad esempio: "Cosa manca per scegliere l'allestitore?", "Quale offerta esclude il montaggio?", "Cosa è cambiato da venerdì?"

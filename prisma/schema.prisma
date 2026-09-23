@@ -936,6 +936,7 @@ model AuditLog {
 
 enum IntegrationProvider {
   OPENAI
+  ANTHROPIC
   SERPER
   GMAIL
 }

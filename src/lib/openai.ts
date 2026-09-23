@@ -1,47 +1,89 @@
+// Modulo di orchestrazione AI: supporta OpenAI e Anthropic Claude come provider
+// intercambiabili. Se entrambe le chiavi sono configurate, OpenAI è provata per
+// prima (prompt storicamente tarati su di essa); in caso di chiave mancante o di
+// errore in fase di chiamata si passa automaticamente all'altro provider
+// configurato, senza che le funzioni sottostanti debbano saperlo.
 import OpenAI from "openai";
-import { requireOpenAI } from "./integrations";
+import Anthropic from "@anthropic-ai/sdk";
+import { requireAI, openaiStatus, anthropicStatus } from "./integrations";
 
-let client: OpenAI | null = null;
-function getClient() {
-  requireOpenAI();
-  if (!client) client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return client;
+let openaiClient: OpenAI | null = null;
+function getOpenAIClient() {
+  if (!openaiClient) openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiClient;
 }
 
-function model() {
+let anthropicClient: Anthropic | null = null;
+function getAnthropicClient() {
+  if (!anthropicClient) anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return anthropicClient;
+}
+
+function openaiModel() {
   return process.env.OPENAI_MODEL || "gpt-4o-mini";
 }
 
+function anthropicModel() {
+  return process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+}
+
+function stripJsonFences(text: string): string {
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenceMatch ? fenceMatch[1] : trimmed;
+}
+
+async function callAI(system: string, user: string, opts: { json: boolean; temperature: number }): Promise<string> {
+  requireAI();
+  const providers: Array<"openai" | "anthropic"> = [
+    ...(openaiStatus().configured ? (["openai"] as const) : []),
+    ...(anthropicStatus().configured ? (["anthropic"] as const) : []),
+  ];
+
+  let lastErr: unknown;
+  for (const provider of providers) {
+    try {
+      if (provider === "openai") {
+        const res = await getOpenAIClient().chat.completions.create({
+          model: openaiModel(),
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          ...(opts.json ? { response_format: { type: "json_object" as const } } : {}),
+          temperature: opts.temperature,
+        });
+        return res.choices[0]?.message?.content || (opts.json ? "{}" : "");
+      } else {
+        const res = await getAnthropicClient().messages.create({
+          model: anthropicModel(),
+          max_tokens: 8192,
+          temperature: opts.temperature,
+          system: opts.json ? `${system}\n\nRispondi SOLO con un oggetto JSON valido, senza testo o markdown aggiuntivo prima o dopo.` : system,
+          messages: [{ role: "user", content: user }],
+        });
+        const block = res.content.find((b) => b.type === "text");
+        return block && block.type === "text" ? block.text : opts.json ? "{}" : "";
+      }
+    } catch (err) {
+      lastErr = err;
+      // Prova il prossimo provider configurato invece di fallire subito.
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Tutti i provider AI configurati hanno fallito");
+}
+
 async function jsonCompletion<T>(system: string, user: string): Promise<T> {
-  const openai = getClient();
-  const res = await openai.chat.completions.create({
-    model: model(),
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.2,
-  });
-  const text = res.choices[0]?.message?.content || "{}";
+  const text = await callAI(system, user, { json: true, temperature: 0.2 });
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(stripJsonFences(text)) as T;
   } catch {
     throw new Error("Risposta AI non in formato JSON valido: " + text.slice(0, 300));
   }
 }
 
 async function textCompletion(system: string, user: string, temperature = 0.3): Promise<string> {
-  const openai = getClient();
-  const res = await openai.chat.completions.create({
-    model: model(),
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    temperature,
-  });
-  return res.choices[0]?.message?.content || "";
+  return callAI(system, user, { json: false, temperature });
 }
 
 // ---------- 1. Qualificazione ----------

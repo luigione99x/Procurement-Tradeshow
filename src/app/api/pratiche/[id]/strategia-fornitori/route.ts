@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
-import { requireOpenAI } from "@/lib/integrations";
+import { requireAI } from "@/lib/integrations";
 import { determinaCategorieFornitori, CategoriaFornitore } from "@/lib/openai";
 import { logAttivita } from "@/lib/audit";
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ strategia: pratica.strategiaFornitori, categorie: null });
     }
 
-    requireOpenAI();
+    requireAI();
     const capitolato = await prisma.capitolatoVersion.findFirst({
       where: { praticaId: params.id, status: "APPROVATO" },
       orderBy: { versionNumber: "desc" },

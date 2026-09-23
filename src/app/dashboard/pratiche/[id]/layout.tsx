@@ -2,8 +2,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getPraticaScoped } from "@/lib/scope";
-import ChatAssistente from "@/components/ChatAssistente";
 
+// L'assistente AI di progetto ha una tab dedicata ("Assistente") invece di una
+// bolla fluttuante sovrapposta a ogni tab: prima si mescolava visivamente con il
+// tool di sourcing/vendita fornitori (tab "Fornitori"), dando l'impressione di
+// un'unica cosa confusa invece di due strumenti distinti.
 const TABS = [
   { href: "", label: "Panoramica" },
   { href: "/brief", label: "Brief" },
@@ -11,6 +14,7 @@ const TABS = [
   { href: "/comunicazioni", label: "Comunicazioni" },
   { href: "/offerte", label: "Offerte" },
   { href: "/piano", label: "Piano e scadenze" },
+  { href: "/assistente", label: "Assistente AI" },
 ];
 
 export default async function PraticaLayout({
@@ -54,7 +58,6 @@ export default async function PraticaLayout({
         </nav>
       </div>
       {children}
-      <ChatAssistente praticaId={params.id} />
     </div>
   );
 }

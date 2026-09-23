@@ -1,10 +1,17 @@
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { allIntegrationStatuses } from "@/lib/integrations";
+import { isMiralisStaff } from "@/lib/authz";
 import IntegrazioniPanel from "@/components/IntegrazioniPanel";
 
+// Configurazione dei provider AI/ricerca/email: riservata allo staff Miralis.
+// Il cliente non deve mai sapere se/quale AI è configurata, né vedere lo stato
+// delle integrazioni: è un dettaglio operativo interno, non un'informazione
+// che gli competa.
 export default async function ImpostazioniPage() {
   const user = await requireUser();
+  if (!isMiralisStaff(user!)) redirect("/dashboard");
   const statuses = allIntegrationStatuses();
   const records = await prisma.integrationConfig.findMany({ where: { companyId: user!.companyId } });
   const merged = statuses.map((s) => ({

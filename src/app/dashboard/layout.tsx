@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isMiralisStaff } from "@/lib/authz";
 import LogoutButton from "@/components/LogoutButton";
 import IntegrationBanner from "@/components/IntegrationBanner";
 
@@ -9,6 +10,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const user = await requireUser();
   if (!user) redirect("/login");
   const company = await prisma.company.findUnique({ where: { id: user.companyId } });
+  const staff = isMiralisStaff(user);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -22,9 +24,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
               <Link href="/dashboard" className="text-slate-600 hover:text-slate-900">
                 Fiere attive
               </Link>
-              <Link href="/dashboard/impostazioni" className="text-slate-600 hover:text-slate-900">
-                Impostazioni
-              </Link>
+              {staff && (
+                <Link href="/dashboard/impostazioni" className="text-slate-600 hover:text-slate-900">
+                  Impostazioni
+                </Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
@@ -35,7 +39,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
         </div>
       </header>
-      <IntegrationBanner />
+      {staff && <IntegrationBanner />}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">{children}</main>
     </div>
   );

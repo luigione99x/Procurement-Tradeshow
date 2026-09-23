@@ -12,6 +12,26 @@ export function openaiStatus() {
   };
 }
 
+export function anthropicStatus() {
+  const configured = Boolean(process.env.ANTHROPIC_API_KEY);
+  return {
+    provider: "ANTHROPIC" as const,
+    configured,
+    label: "Anthropic Claude (compiti AI)",
+    missingHint: "Imposta la variabile d'ambiente ANTHROPIC_API_KEY nelle impostazioni del progetto.",
+  };
+}
+
+// Vero se almeno uno dei due provider AI è configurato. src/lib/openai.ts usa
+// OpenAI come preferito quando disponibile e passa automaticamente a Claude
+// (o viceversa se solo Claude è configurato) senza che le route debbano saperlo:
+// qui serve solo per decidere se generare con AI o con i template deterministici.
+export function aiStatus() {
+  const openai = openaiStatus();
+  const anthropic = anthropicStatus();
+  return { configured: openai.configured || anthropic.configured, openai, anthropic };
+}
+
 export function serperStatus() {
   const configured = Boolean(process.env.SERPER_API_KEY);
   return {
@@ -40,7 +60,7 @@ export function gmailStatus() {
 }
 
 export function allIntegrationStatuses() {
-  return [openaiStatus(), serperStatus(), gmailStatus()];
+  return [openaiStatus(), anthropicStatus(), serperStatus(), gmailStatus()];
 }
 
 export class IntegrationNotConfiguredError extends Error {
@@ -56,6 +76,16 @@ export class IntegrationNotConfiguredError extends Error {
 export function requireOpenAI() {
   const s = openaiStatus();
   if (!s.configured) throw new IntegrationNotConfiguredError(s.label, s.missingHint);
+}
+
+export function requireAI() {
+  const s = aiStatus();
+  if (!s.configured) {
+    throw new IntegrationNotConfiguredError(
+      "OpenAI o Anthropic Claude (compiti AI)",
+      "Imposta OPENAI_API_KEY o ANTHROPIC_API_KEY nelle variabili d'ambiente del progetto."
+    );
+  }
 }
 
 export function requireSerper() {
