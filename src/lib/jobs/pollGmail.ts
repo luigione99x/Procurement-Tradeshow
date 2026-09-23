@@ -4,6 +4,25 @@ import { classificaEmail, estraiOfferta } from "@/lib/openai";
 import { uploadDocumento } from "@/lib/blob";
 import { blobConfigured } from "@/lib/blob";
 import { logAttivita } from "@/lib/audit";
+import { valutaRivelazione, revealFornitore, marcaPerRevisioneVisibilita } from "@/lib/supplierVisibility";
+
+// Mappa la classificazione AI dell'email allo stato del fornitore nel progetto
+// (Sezione 9). Le categorie automatiche mappano a stati dedicati cosi' non si
+// confondono con una vera assenza di risposta (NO_RESPONSE resta per il
+// controllo scadenze quando non arriva proprio nulla).
+const STATO_DA_CLASSIFICAZIONE: Record<string, string | undefined> = {
+  DISPONIBILE: "REPLIED",
+  NON_DISPONIBILE: "REJECTED",
+  CHIEDE_CHIARIMENTI: "CLARIFICATION",
+  OFFERTA_RICEVUTA: "QUOTE_RECEIVED",
+  OFFERTA_REVISIONATA: "QUOTE_RECEIVED",
+  DOCUMENTO_RICEVUTO: "REPLIED",
+  RISPOSTA_NEGOZIAZIONE: "NEGOTIATING",
+  FORNITORE_SI_RITIRA: "OPTED_OUT",
+  RISPOSTA_AUTOMATICA: "AUTOMATIC_REPLY",
+  FUORI_SEDE: "AUTOMATIC_REPLY",
+  BOUNCE: "BOUNCED",
+};
 
 // La casella Gmail è unica e condivisa (non una per cliente, come da specifica v1):
 // lo stato di sincronizzazione è quindi un singleton, non per-azienda.
@@ -68,6 +87,34 @@ export async function eseguiPollGmail() {
       }
 
       await prisma.emailThread.update({ where: { id: thread.id }, data: { lastMessageAt: new Date(full.date) } });
+
+      // Sezione 6: valuta se questa risposta e' una risposta umana valida che deve
+      // rivelare il fornitore al cliente. Bounce/OOO/auto-reply non ci arrivano mai
+      // (valutaRivelazione le esclude sempre); bassa confidenza -> revisione Miralis.
+      if (classificazione && thread.fornitoreId) {
+        const nuovoStato = STATO_DA_CLASSIFICAZIONE[classificazione.classificazione];
+        if (nuovoStato) {
+          await prisma.fornitore.update({ where: { id: thread.fornitoreId }, data: { stato: nuovoStato as any } });
+        }
+
+        const decisione = valutaRivelazione({
+          classificazione: classificazione.classificazione,
+          confidenza: classificazione.confidenza ?? 0,
+        });
+        if (decisione === "REVEAL") {
+          await revealFornitore({
+            fornitoreId: thread.fornitoreId,
+            reason: `Risposta umana valida ricevuta (${classificazione.classificazione}, confidenza ${classificazione.confidenza})`,
+            revealedByUserId: null,
+            replyConfidence: classificazione.confidenza,
+          });
+        } else if (decisione === "REVIEW") {
+          await marcaPerRevisioneVisibilita({
+            fornitoreId: thread.fornitoreId,
+            replyConfidence: classificazione.confidenza ?? 0,
+          });
+        }
+      }
 
       if (classificazione?.classificazione === "OFFERTA_RICEVUTA" && thread.fornitoreId) {
         const estrazione = await estraiOfferta(full.bodyText || "").catch(() => null);

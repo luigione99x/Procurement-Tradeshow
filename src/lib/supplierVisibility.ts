@@ -103,7 +103,12 @@ export function fornitoriForRole(fornitori: Fornitore[], user: Pick<User, "role"
 // -------------------- Logica di rivelazione (Sezione 6) --------------------
 // Categorie di classificazione email che NON possono mai attivare la rivelazione,
 // anche con alta confidenza: sono risposte automatiche, non un essere umano.
-const NON_REVEALING_CLASSIFICATIONS = new Set(["AUTOMATIC_REPLY", "BOUNCE", "OUT_OF_OFFICE", "UNRELATED", "REQUIRES_HUMAN_REVIEW"]);
+// Valori allineati a EmailClassification in prisma/schema.prisma e a
+// ClassificazioneEmail in src/lib/openai.ts (Sezione 17 del brief).
+const NON_REVEALING_CLASSIFICATIONS = new Set(["RISPOSTA_AUTOMATICA", "BOUNCE", "FUORI_SEDE", "NON_PERTINENTE"]);
+// Il modello stesso dichiara di non essere sicuro: richiede sempre revisione
+// umana, mai rivelazione automatica, indipendentemente dalla confidenza indicata.
+const ALWAYS_REVIEW_CLASSIFICATIONS = new Set(["DA_VERIFICARE"]);
 
 // Soglia sotto la quale una classificazione "umana" plausibile richiede comunque
 // revisione Miralis prima di rivelare (default del prodotto: "reveal automatico
@@ -119,6 +124,7 @@ export type RispostaClassificazione = {
 // oppure non fare nulla. NON scrive nel DB: e' una funzione pura, testabile.
 export function valutaRivelazione(risposta: RispostaClassificazione): "REVEAL" | "REVIEW" | "NONE" {
   if (NON_REVEALING_CLASSIFICATIONS.has(risposta.classificazione)) return "NONE";
+  if (ALWAYS_REVIEW_CLASSIFICATIONS.has(risposta.classificazione)) return "REVIEW";
   if (risposta.confidenza >= AUTO_REVEAL_CONFIDENCE_THRESHOLD) return "REVEAL";
   return "REVIEW";
 }
@@ -145,6 +151,7 @@ export async function revealFornitore(params: {
       revealReason: params.reason,
       requiresVisibilityReview: false,
       replyConfidence: params.replyConfidence ?? fornitore.replyConfidence,
+      firstValidReplyAt: fornitore.firstValidReplyAt ?? new Date(),
     },
   });
 
@@ -164,9 +171,15 @@ export async function marcaPerRevisioneVisibilita(params: {
   fornitoreId: string;
   replyConfidence: number;
 }) {
+  const fornitore = await prisma.fornitore.findUnique({ where: { id: params.fornitoreId } });
+  if (!fornitore) throw new Error("Fornitore non trovato");
   return prisma.fornitore.update({
     where: { id: params.fornitoreId },
-    data: { requiresVisibilityReview: true, replyConfidence: params.replyConfidence },
+    data: {
+      requiresVisibilityReview: true,
+      replyConfidence: params.replyConfidence,
+      firstValidReplyAt: fornitore.firstValidReplyAt ?? new Date(),
+    },
   });
 }
 

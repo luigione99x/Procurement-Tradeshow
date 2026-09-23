@@ -641,6 +641,16 @@ enum EmailClassification {
   OFFERTA_RICEVUTA
   DA_VERIFICARE
   ALTRO
+  // estensione Sezione 17: categorie granulari, in particolare quelle che
+  // NON devono mai attivare la rivelazione del fornitore (vedi supplierVisibility.ts)
+  OFFERTA_REVISIONATA
+  DOCUMENTO_RICEVUTO
+  RISPOSTA_NEGOZIAZIONE
+  FORNITORE_SI_RITIRA
+  RISPOSTA_AUTOMATICA
+  FUORI_SEDE
+  BOUNCE
+  NON_PERTINENTE
 }
 
 model EmailMessage {

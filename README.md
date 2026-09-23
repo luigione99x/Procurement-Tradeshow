@@ -66,6 +66,7 @@ cp .env.example .env.local   # poi compila i valori
 npx prisma generate
 npx prisma migrate deploy    # applica le migrazioni versionate al tuo Postgres (Neon consigliato)
 npm run db:seed              # crea lo staff Miralis (e un progetto demo) — vedi variabili MIRALIS_ADMIN_*
+npm run test                 # test automatici (Sezione 36): leakage, normalizzazione, parsing import
 npm run dev
 ```
 

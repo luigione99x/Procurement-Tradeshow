@@ -87,41 +87,73 @@ originale. Non ancora fatto: UI/route per creare/gestire un `Client` separato da
 collegamento `SavingsBaseline` al flusso di approvazione, upload documenti iniziali con le categorie estese
 di Sezione 19.
 
-## Fasi 4-11 — non iniziate
+## Fase 5 (parziale) — Classificazione risposte e rivelazione automatica (completata end-to-end)
 
-Shortlist con punteggio di compatibilità, generazione RFQ con template IT/EN, classificazione risposte con
-distinzione bounce/OOO/auto-reply e collegamento a `revealFornitore()` (la funzione esiste in
-`supplierVisibility.ts` ma **nessun job la chiama ancora** — è il collegamento mancante più importante per
-rendere reale la Sezione 6 end-to-end), negoziazione a round, Document Room con estrazione fatti, Project
-Assistant, provider AI duale OpenAI+Anthropic, i18n IT/EN, duplicazione progetto, report finale.
+- **Tassonomia classificazione estesa** (Sezione 17): `src/lib/openai.ts#classificaEmail` ora distingue
+  esplicitamente `RISPOSTA_AUTOMATICA`, `FUORI_SEDE`, `BOUNCE`, `NON_PERTINENTE` dalle categorie umane
+  (`DISPONIBILE`, `NON_DISPONIBILE`, `CHIEDE_CHIARIMENTI`, `OFFERTA_RICEVUTA`, `OFFERTA_REVISIONATA`,
+  `DOCUMENTO_RICEVUTO`, `RISPOSTA_NEGOZIAZIONE`, `FORNITORE_SI_RITIRA`) e restituisce una `confidenza` 0..1.
+  Prima di questa modifica il classificatore aveva solo 6 categorie generiche e **nessuna** per
+  bounce/OOO/auto-reply: un bounce sarebbe stato classificato come "ALTRO" e avrebbe potuto rivelare un
+  fornitore per errore. Migrazione `..._email_classification_granulare` applicata al Neon reale.
+- **Collegamento reveal-on-reply**: `src/lib/jobs/pollGmail.ts` ora chiama `valutaRivelazione()` su ogni
+  email in ingresso legata a un fornitore. `REVEAL` → `revealFornitore()` (imposta `clientVisibility`,
+  `firstValidReplyAt`, `revealedAt/By/Reason`, audit log). `REVIEW` (bassa confidenza, o categoria
+  `DA_VERIFICARE`) → `marcaPerRevisioneVisibilita()`. Le categorie automatiche non toccano mai la
+  visibilità. Aggiorna anche `Fornitore.stato` in base alla classificazione (`REPLIED`, `QUOTE_RECEIVED`,
+  `BOUNCED`, `AUTOMATIC_REPLY`, ...). **Non ancora testato contro Gmail reale** (nessuna casella
+  configurata in questa sessione) — verificato solo a livello di unit test sulla logica di decisione.
 
-## Dati demo (Sezione 35)
+## Fasi 4, 6-11 — non iniziate
 
-`prisma/seed.ts` riscritto: crea (idempotente) lo staff Miralis da `MIRALIS_ADMIN_EMAIL/NAME/PASSWORD`, poi
-un progetto demo "MECSPE 2027 (demo)" per un cliente fittizio "Acme Industries (demo)" con i numeri esatti
-di Sezione 35 (48mq, budget €35.000, baseline €32.000, 20 fornitori inventati con nomi chiaramente "Demo ...",
-12 contattati, 5 rivelati dopo risposta, 3 preventivi, BAFO €25.500, risparmio €6.500, fee 30% = €1.950).
-**Non ancora eseguito contro il Neon reale** in questa sessione (stesso limite di rete di cui sopra: questo
-script usa Prisma Client via TCP diretto, non l'integrazione HTTPS). Eseguire `npm run db:seed` da un
-ambiente con accesso diretto al DB per popolarlo.
+Shortlist con punteggio di compatibilità, generazione RFQ con template IT/EN, negoziazione a round con
+approvazione, Document Room con estrazione fatti, Project Assistant, provider AI duale OpenAI+Anthropic,
+i18n IT/EN, duplicazione progetto, report finale.
 
-## Test automatici (Sezione 36)
+## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
-**Non iniziato.** Nessun test runner configurato nel prototipo originale (`package.json` non ha `vitest`/
-`jest`). Prossimo passo concreto: aggiungere Vitest e coprire per primi `src/lib/supplierVisibility.ts`
-(nessun campo identificativo trapela per un fornitore `HIDDEN`) e `src/lib/supplierImport.ts` (dedup,
-normalizzazione) perché sono funzioni pure, senza bisogno di un DB per essere testate.
+`prisma/seed.ts` riscritto (crea idempotente lo staff Miralis + il progetto demo, per un ambiente con
+accesso diretto al DB) **e inoltre eseguito manualmente in questa sessione** tramite l'integrazione Neon
+(stesso meccanismo usato per l'import fornitori, vedi nota tecnica sopra). Verificato in produzione:
+progetto "MECSPE 2027 (demo)" per "Acme Industries (demo)", 48mq, budget €35.000, baseline €32.000
+(bloccata, approvata), 20 fornitori con nomi chiaramente "Demo ..." (mai il database proprietario reale),
+12 contattati, **5 rivelati** (`clientVisibility=REVEALED`) dopo risposta, 3 preventivi iniziali (€29.800 /
+€27.500 / €31.200) + 1 BAFO (€25.500) sul fornitore con l'offerta iniziale migliore, decisione registrata
+con risparmio €6.500 e fee 30% = **€1.950** (verificato via query diretta). Rieseguire `npm run db:seed` da
+un ambiente con accesso diretto al DB è comunque sicuro (idempotente sullo staff Miralis; il progetto demo
+viene creato una sola volta, controllo per nome).
+
+## Test automatici (Sezione 36) — avviati
+
+Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 27 test, tutti verdi, concentrati
+sulle funzioni pure che non richiedono un DB (eseguibili anche in questo ambiente sandbox senza accesso
+diretto a Postgres):
+
+- `src/lib/supplierVisibility.test.ts` — nessun campo identificativo (`nome`/`sito`/`email`/...) sopravvive
+  nella versione redatta o nel JSON serializzato di un fornitore `HIDDEN`; `redactNestedFornitore` idem per
+  oggetti annidati; `valutaRivelazione` non rivela **mai** per `RISPOSTA_AUTOMATICA`/`BOUNCE`/`FUORI_SEDE`/
+  `NON_PERTINENTE` anche con confidenza 1.0, e `DA_VERIFICARE` richiede sempre revisione umana anche con
+  confidenza alta; `audienceForFornitore` non è mai `CLIENT_SAFE` per un fornitore nascosto.
+- `src/lib/supplierImport.test.ts` — normalizzazione dominio/email/ragione sociale, parsing CSV/TSV RFC4180
+  (campi quotati, virgole/virgolette interne), rilevamento colonne, validazione riga per riga.
+
+**Non ancora coperto** (richiede un DB reale, non eseguibile da questo sandbox): `planImport`/
+`importSuppliers` (dedup contro l'archivio esistente), tenant isolation end-to-end (`scope.ts`), test
+d'integrazione sulle route API (assenza di leak nella risposta HTTP effettiva, non solo nella funzione pura
+che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB raggiungibile.
 
 ## Verificato in questa sessione
 
-- `npx tsc --noEmit` — pulito.
-- `npm run build` (`prisma generate && next build`) — completa con successo, tutte le route (incluse quelle
-  nuove) registrate correttamente.
+- `npx tsc --noEmit` — pulito (rieseguito dopo ogni fase, incluse le modifiche a classificazione/reveal).
+- `npm run build` (`prisma generate && next build`) — completa con successo, tutte le route registrate.
+- `npm run test` (Vitest) — 27/27 test verdi.
 - `npm run lint` — **non verificabile**: il prototipo originale non aveva ESLint configurato e `next lint`
   richiede una configurazione interattiva al primo avvio, non disponibile in questo ambiente non interattivo.
 - Import reale delle 201 aziende verificato via query dirette su Neon (conteggi, duplicati, revisioni).
 - Migrazione Fase 1 verificata: `SELECT role FROM "User"` conferma la migrazione dati `ADMIN→CLIENT` corretta
   sull'unico utente preesistente.
+- Dati demo verificati via query diretta: 20 fornitori, 5 rivelati, 4 offerte, fee calcolata €1.950
+  (corrispondenza esatta con i numeri di Sezione 35).
 
 ## Credenziali create in questa sessione
 
@@ -131,9 +163,11 @@ normalizzazione) perché sono funzioni pure, senza bisogno di un DB per essere t
 
 ## Prossimo passo consigliato
 
-1. Collegare `revealFornitore()`/`valutaRivelazione()` alla classificazione email (`pollGmail.ts`): oggi la
-   protezione visibilità è corretta e testata sul lato lettura, ma niente la attiva ancora automaticamente
-   sul lato scrittura quando arriva una risposta reale.
-2. Aggiungere Vitest e i test di leakage (Sezione 36) prima di costruire altre funzionalità sopra
-   l'impianto di visibilità.
-3. Eseguire `npm run db:seed` da un ambiente con rete diretta al DB per popolare i dati demo.
+1. Collaudare `pollGmail.ts` con una vera casella Gmail configurata (nessuna in questa sessione): verificare
+   che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore.
+2. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
+3. Generazione RFQ con template IT/EN e capitolato (Fase 4), poi negoziazione a round (Fase 7) — le due
+   fasi che sbloccano il ciclo completo "shortlist → contatto → confronto → scelta" richiesto dai criteri
+   di accettazione.
+4. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
+   inline dal prototipo originale, non referenzia la baseline versionata).

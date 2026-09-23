@@ -200,14 +200,28 @@ Tono cordiale e professionale, firma generica "Il team procurement". Rispondi in
 
 // ---------- 4. Classificazione email in ingresso ----------
 
+// Tassonomia allineata alla Sezione 17 del brief Miralis. Le categorie
+// automatiche (RISPOSTA_AUTOMATICA, FUORI_SEDE, BOUNCE) NON devono mai
+// attivare la rivelazione del fornitore: vedi src/lib/supplierVisibility.ts.
 export type ClassificazioneEmail = {
   classificazione:
-    | "DISPONIBILE"
-    | "NON_DISPONIBILE"
-    | "CHIEDE_CHIARIMENTI"
-    | "OFFERTA_RICEVUTA"
-    | "DA_VERIFICARE"
+    | "DISPONIBILE" // interested
+    | "NON_DISPONIBILE" // not_interested (da una persona)
+    | "CHIEDE_CHIARIMENTI" // clarification_request
+    | "OFFERTA_RICEVUTA" // quote_received
+    | "OFFERTA_REVISIONATA" // revised_quote
+    | "DOCUMENTO_RICEVUTO" // document_received
+    | "RISPOSTA_NEGOZIAZIONE" // negotiation_response
+    | "FORNITORE_SI_RITIRA" // supplier_withdrawal
+    | "RISPOSTA_AUTOMATICA" // automatic_reply — MAI umana
+    | "FUORI_SEDE" // out_of_office — MAI umana
+    | "BOUNCE" // delivery failure — MAI umana
+    | "NON_PERTINENTE" // unrelated
+    | "DA_VERIFICARE" // requires_human_review
     | "ALTRO";
+  // 0..1: quanto il modello è sicuro che questa sia una risposta umana reale
+  // (non usata per le categorie automatiche, che sono sempre 0 di fatto).
+  confidenza: number;
   riassunto: string;
   richiedeCambioCapitolato: boolean;
   motivoCambioCapitolato?: string;
@@ -215,9 +229,15 @@ export type ClassificazioneEmail = {
 
 export async function classificaEmail(bodyText: string): Promise<ClassificazioneEmail> {
   const system = `Classifica questa email di risposta di un fornitore ad una RFQ per stand fieristico.
-Valori possibili per "classificazione": DISPONIBILE, NON_DISPONIBILE, CHIEDE_CHIARIMENTI, OFFERTA_RICEVUTA, DA_VERIFICARE, ALTRO.
+Distingui SEMPRE con attenzione una risposta scritta da una persona reale da un messaggio automatico:
+risposte automatiche del server (mailer-daemon, "delivery failed", "undeliverable") sono BOUNCE; messaggi
+"fuori sede"/"out of office"/ferie generati automaticamente sono FUORI_SEDE; conferme di ricezione automatiche,
+autoresponder generici o notifiche di sistema sono RISPOSTA_AUTOMATICA. Queste tre categorie non sono mai una
+risposta umana, anche se il testo sembra cordiale o personalizzato.
+Valori possibili per "classificazione": DISPONIBILE, NON_DISPONIBILE, CHIEDE_CHIARIMENTI, OFFERTA_RICEVUTA, OFFERTA_REVISIONATA, DOCUMENTO_RICEVUTO, RISPOSTA_NEGOZIAZIONE, FORNITORE_SI_RITIRA, RISPOSTA_AUTOMATICA, FUORI_SEDE, BOUNCE, NON_PERTINENTE, DA_VERIFICARE, ALTRO.
+"confidenza" (0..1): quanto sei sicuro che sia una risposta umana reale e pertinente (per le categorie automatiche indica comunque 0).
 Indica anche se la risposta implica un cambiamento a una specifica importante del capitolato che andrebbe comunicato agli altri fornitori (richiedeCambioCapitolato, motivoCambioCapitolato).
-Rispondi SOLO in JSON con chiavi: classificazione, riassunto, richiedeCambioCapitolato, motivoCambioCapitolato.`;
+Rispondi SOLO in JSON con chiavi: classificazione, confidenza, riassunto, richiedeCambioCapitolato, motivoCambioCapitolato.`;
   return jsonCompletion<ClassificazioneEmail>(system, bodyText.slice(0, 8000));
 }
 
