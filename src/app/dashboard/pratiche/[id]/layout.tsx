@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getPraticaScoped } from "@/lib/scope";
+import DuplicaProgettoButton from "@/components/DuplicaProgettoButton";
 
 // L'assistente AI di progetto ha una tab dedicata ("Assistente") invece di una
 // bolla fluttuante sovrapposta a ogni tab: prima si mescolava visivamente con il
@@ -36,14 +37,17 @@ export default async function PraticaLayout({
 
   return (
     <div>
-      <div className="mb-4 print:hidden">
-        <Link href="/dashboard" className="text-sm text-slate-500 hover:underline">
-          ← Fiere attive
-        </Link>
-        <h1 className="text-2xl font-semibold mt-1">{pratica.nome}</h1>
-        <p className="text-slate-500 text-sm">
-          {pratica.fieraNome} {pratica.citta ? `· ${pratica.citta}` : ""}
-        </p>
+      <div className="mb-4 print:hidden flex items-start justify-between gap-4">
+        <div>
+          <Link href="/dashboard" className="text-sm text-slate-500 hover:underline">
+            ← Fiere attive
+          </Link>
+          <h1 className="text-2xl font-semibold mt-1">{pratica.nome}</h1>
+          <p className="text-slate-500 text-sm">
+            {pratica.fieraNome} {pratica.citta ? `· ${pratica.citta}` : ""}
+          </p>
+        </div>
+        <DuplicaProgettoButton praticaId={params.id} nomeAttuale={pratica.nome} />
       </div>
       <div className="border-b border-slate-200 mb-6 print:hidden">
         <nav className="flex gap-4 -mb-px">

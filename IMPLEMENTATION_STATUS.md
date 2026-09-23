@@ -363,9 +363,31 @@ utilizzabile per un invio di massa per due limiti reali scoperti analizzando il 
   non c'è ancora un meccanismo automatico che riprenda quelli rimasti `PRONTO`/`INVIO_IN_CORSO`: da verificare
   con un invio reale a un numero di fornitori vicino a 200.
 
-## Fasi 9-10 — non iniziate
+## Fase 10 — Duplicazione progetto (completata)
 
-i18n IT/EN, duplicazione progetto.
+Il campo `duplicatedFromId`/`duplicati` (relazione self-referenziale su `Pratica`) esisteva sullo schema fin
+dalla Fase 1 ma zero righe di codice lo usavano. Pensata per fiere ricorrenti (stesso cliente, stessa fiera
+l'anno dopo): copia SOLO la parte "impostazione", mai l'esecuzione.
+
+- `POST /api/pratiche/[id]/duplica` (stesso permesso di accesso della pratica originale, cliente incluso —
+  è il suo progetto): copia brief, qualificazione (dati e stato), strategia fornitori, valuta/fee
+  concordata; copia l'ultimo capitolato **approvato**, se esiste, come nuova bozza `IN_ATTESA_APPROVAZIONE`
+  da riapprovare (non finge sia già valido per la nuova edizione). Nuovo `status: QUALIFICAZIONE`.
+  **Deliberatamente NON copiate**: le date (fiera, scadenze) — riportare le date dell'anno scorso senza che
+  nessuno le cambi sarebbe un errore silenzioso peggiore che lasciarle vuote; `codiceProgetto` (univoco);
+  tutto ciò che è specifico di un'esecuzione (fornitori collegati, RFQ, comunicazioni, offerte, decisione,
+  piano, baseline, audit log) — si riparte sempre da zero lì, non è una lacuna.
+- `DuplicaProgettoButton.tsx` nell'header di ogni pratica (chiede il nome del nuovo progetto, poi ci
+  reindirizza).
+- Verificato con un dry-run diretto sul Neon reale (pratica di test isolata, creata e cancellata subito
+  dopo): la copia dei campi dal progetto demo rispetta tutti i vincoli dello schema senza errori.
+- **Non fatto**: nessuna opzione per scegliere selettivamente cosa copiare (oggi è tutto-o-niente secondo la
+  regola sopra); documenti caricati non copiati (i file richiederebbero una copia separata del blob, non
+  solo del riferimento).
+
+## Fasi 9 — non iniziata
+
+i18n IT/EN.
 
 ## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
