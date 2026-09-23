@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { Supplier } from "@prisma/client";
+import ModificaSupplierModal from "./ModificaSupplierModal";
 
 const SOURCE_LABEL: Record<string, string> = {
   MIRALIS_DATABASE: "Database Miralis",
@@ -22,6 +23,7 @@ export default function SupplierDirectoryPanel({ initial, initialTotal }: { init
   const [q, setQ] = useState("");
   const [sourceType, setSourceType] = useState("");
   const [loading, setLoading] = useState(false);
+  const [inModifica, setInModifica] = useState<Supplier | null>(null);
 
   async function search() {
     setLoading(true);
@@ -72,6 +74,7 @@ export default function SupplierDirectoryPanel({ initial, initialTotal }: { init
               <th className="py-2 pr-3">Sito</th>
               <th className="py-2 pr-3">Fonte</th>
               <th className="py-2 pr-3">Verifica</th>
+              <th className="py-2 pr-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -79,6 +82,7 @@ export default function SupplierDirectoryPanel({ initial, initialTotal }: { init
               <tr key={s.id} className="border-b border-slate-100">
                 <td className="py-2 pr-3 font-medium">
                   {s.ragioneSociale}
+                  {s.categorie.length > 0 && <div className="text-xs text-slate-400 font-normal mt-0.5">{s.categorie.join(", ")}</div>}
                   {s.noteInterne && <div className="text-xs text-amber-700 font-normal mt-0.5">⚠ {s.noteInterne}</div>}
                 </td>
                 <td className="py-2 pr-3 text-slate-500">{s.citta || "—"}</td>
@@ -98,11 +102,16 @@ export default function SupplierDirectoryPanel({ initial, initialTotal }: { init
                 <td className="py-2 pr-3">
                   <span className={`badge ${VERIFICATION_BADGE[s.verificationStatus] ?? ""}`}>{s.verificationStatus}</span>
                 </td>
+                <td className="py-2 pr-3">
+                  <button className="text-xs text-brand-600 hover:underline" onClick={() => setInModifica(s)}>
+                    Modifica
+                  </button>
+                </td>
               </tr>
             ))}
             {suppliers.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={7} className="py-6 text-center text-slate-400">
                   Nessun fornitore trovato.
                 </td>
               </tr>
@@ -110,6 +119,14 @@ export default function SupplierDirectoryPanel({ initial, initialTotal }: { init
           </tbody>
         </table>
       </div>
+
+      {inModifica && (
+        <ModificaSupplierModal
+          supplier={inModifica}
+          onClose={() => setInModifica(null)}
+          onSalvato={(aggiornato) => setSuppliers((prev) => prev.map((s) => (s.id === aggiornato.id ? aggiornato : s)))}
+        />
+      )}
     </div>
   );
 }

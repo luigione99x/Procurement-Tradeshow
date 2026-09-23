@@ -234,10 +234,23 @@ sul Neon reale (evidenza diretta: il file sorgente si chiama "Allestitori", non 
   badge di compatibilità aggiunto anche in `FornitoriPanel.tsx`.
 - **Test aggiunti**: `src/lib/compatibilityScore.test.ts` (6 test) + 3 nuovi test per `normalizeCategoria` in
   `supplierImport.test.ts`. Totale ora 43 test, tutti verdi.
-- **Non fatto**: nessuna UI per assegnare/correggere manualmente `rating`/`puntualita`/`qualita` o le
-  categorie di un fornitore esistente (i campi esistono sul modello, nessuna route li scrive ancora) — senza
-  quello il fattore "storico qualità" resta a zero informazione per tutto il database reale, non solo per i
-  201 importati.
+
+## Fase 6 (continua) — Modifica manuale scheda fornitore (completata)
+
+Colmato il gap appena identificato: `rating`/`puntualita`/`qualita`/`capacitaRisposta`/`categorie`/
+`verificationStatus`/`contactability` esistevano sul modello `Supplier` ma nessuna route li scriveva mai —
+il fattore "storico qualità" del punteggio di compatibilità restava a zero informazione per tutto il
+database reale, non solo per i 201 importati.
+
+- Nuova route `PATCH /api/admin/fornitori/[id]` (solo staff Miralis, validazione zod: rating/puntualità/
+  qualità/capacità di risposta vincolati 0-5).
+- Nuovo `ModificaSupplierModal.tsx` — selezione categorie multiple, città/provincia/regione, i 4 punteggi
+  storici, stato di verifica, contattabilità, note interne — collegato con un link "Modifica" per riga in
+  `SupplierDirectoryPanel.tsx` (la directory interna `/dashboard/fornitori`).
+- Estratto `src/lib/supplierCategories.ts` (etichette italiane condivise) per evitare la duplicazione tra
+  `AggiungiDaDatabaseModal.tsx` e `ModificaSupplierModal.tsx`.
+- **Non fatto**: nessuna UI per unire due schede fornitore duplicate segnalate (`noteInterne`) durante
+  l'import — restano fianco a fianco in attesa di revisione manuale diretta sul DB.
 
 ## Fasi 8-11 — non iniziate
 

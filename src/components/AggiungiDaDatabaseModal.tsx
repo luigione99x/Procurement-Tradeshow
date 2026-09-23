@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { SUPPLIER_CATEGORIE } from "@/lib/supplierCategories";
 
 type SupplierRow = {
   id: string;
@@ -11,24 +12,7 @@ type SupplierRow = {
   compatibilityMotivi?: string[];
 };
 
-const CATEGORIE = [
-  { value: "", label: "Qualsiasi categoria" },
-  { value: "GENERAL_CONTRACTOR", label: "General contractor" },
-  { value: "STAND_BUILDER", label: "Allestitore stand" },
-  { value: "DESIGN", label: "Progettazione/design" },
-  { value: "GRAPHICS", label: "Grafica" },
-  { value: "LIGHTING", label: "Illuminazione" },
-  { value: "ELECTRICAL", label: "Elettricista" },
-  { value: "AV", label: "Audio/video" },
-  { value: "FURNITURE", label: "Arredi" },
-  { value: "LOGISTICS", label: "Trasporti/logistica" },
-  { value: "CATERING", label: "Catering" },
-  { value: "INTERNET", label: "Internet" },
-  { value: "RIGGING", label: "Rigging" },
-  { value: "CLEANING", label: "Pulizie" },
-  { value: "SAFETY", label: "Sicurezza" },
-  { value: "WASTE_DISPOSAL", label: "Smaltimento rifiuti" },
-];
+const CATEGORIE = [{ value: "", label: "Qualsiasi categoria" }, ...SUPPLIER_CATEGORIE];
 
 // Ricerca nel database proprietario Miralis (Sezione 8/9) e collega i fornitori
 // scelti al progetto corrente come candidati. Componente usato solo lato staff
