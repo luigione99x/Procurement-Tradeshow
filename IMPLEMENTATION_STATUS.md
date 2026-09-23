@@ -252,9 +252,40 @@ database reale, non solo per i 201 importati.
 - **Non fatto**: nessuna UI per unire due schede fornitore duplicate segnalate (`noteInterne`) durante
   l'import — restano fianco a fianco in attesa di revisione manuale diretta sul DB.
 
-## Fasi 8-11 — non iniziate
+## Fase 8 (parziale) — Document Room: estrazione testo (completata)
 
-Document Room con estrazione fatti, i18n IT/EN, duplicazione progetto, report finale.
+Verifica prima di implementare: `Documento.extractedText` era letto in 4 punti (contesto capitolato,
+contesto chat qualificazione, citazioni assistente, **generazione del piano di esecuzione** che legge
+`contrattoTesto`/`manualeEspositoreTesto`) ma **scritto da nessuna parte** — l'intera pipeline di estrazione
+documentale non esisteva, indipendentemente dall'AI. In particolare il Piano di esecuzione, che dovrebbe
+derivare le attività da contratto e manuale espositore, lavorava sempre a mani vuote.
+
+- **`src/lib/documentExtraction.ts`**: estrazione testo da PDF (`pdf-parse` v2, `PDFParse.getText()`) e da
+  file di testo semplice (`.txt`/`.md`). Best-effort: un file non estraibile (immagine, PDF scansionato
+  senza livello testo, `.docx`, formato non supportato) resta comunque caricato correttamente, solo senza
+  `extractedText` — non deve mai bloccare l'upload. Limite 20MB per l'estrazione (il file resta comunque
+  caricabile oltre quel limite, solo senza tentare l'estrazione).
+- **`POST /api/pratiche/[id]/documenti`** ora popola `extractedText` al momento dell'upload. `extractedText`
+  non viene mai spedito al client (può essere l'intero testo di un PDF): l'API restituisce solo un booleano
+  `haTestoEstratto`, mostrato come badge verde/grigio in `DocumentiUploader.tsx`.
+- **Bug corretto**: `CONTRATTO` e `OFFERTA_PDF` erano tipi di documento validi nello schema (e `CONTRATTO` è
+  cercato esplicitamente dalla generazione del piano) ma non erano selezionabili nel form di upload — aggiunti
+  alla lista.
+- **Rischio noto**: `pdf-parse` v2 dipende da `@napi-rs/canvas` (binario nativo). Non usato dal solo percorso
+  di estrazione testo qui implementato, ma è una dipendenza di build in più: da verificare che il build
+  Vercel la installi senza problemi (verificato in questa sessione solo nel sandbox locale, non ancora su un
+  deploy Vercel completo dopo questo cambiamento specifico).
+- **Test aggiunti**: `src/lib/documentExtraction.test.ts` (4 test, sui percorsi deterministici: testo
+  semplice, formato non supportato, limite di dimensione, contenuto vuoto — non testa il parsing PDF vero e
+  proprio, che dipende dalla libreria esterna). Totale ora 47 test, tutti verdi.
+- **Non fatto**: nessuna estrazione "fatti strutturati" oltre al testo grezzo (es. non individua
+  automaticamente clausole contrattuali specifiche) — il testo estratto alimenta comunque l'AI generativa
+  esistente (capitolato/piano/assistente) che può interpretarlo; senza AI configurata, il testo resta
+  comunque disponibile ma non riassunto/interpretato. Nessun estrattore per `.docx`/immagini con OCR.
+
+## Fasi 9-11 — non iniziate
+
+i18n IT/EN, duplicazione progetto, report finale.
 
 ## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
@@ -271,7 +302,7 @@ viene creato una sola volta, controllo per nome).
 
 ## Test automatici (Sezione 36) — avviati
 
-Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 43 test, tutti verdi, concentrati
+Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 47 test, tutti verdi, concentrati
 sulle funzioni pure che non richiedono un DB (eseguibili anche in questo ambiente sandbox senza accesso
 diretto a Postgres):
 
@@ -293,6 +324,9 @@ diretto a Postgres):
 - `src/lib/compatibilityScore.test.ts` — un dato mancante non penalizza mai (resta neutro 50); categoria
   compatibile premia, categoria diversa penalizza; stessa città pesa più di una semplice area servita;
   verifica/contattabilità problematica penalizza pesantemente; il punteggio resta sempre 0-100.
+- `src/lib/documentExtraction.test.ts` — un file di testo semplice viene letto direttamente; un formato
+  senza estrattore o un file oltre il limite di dimensione restituiscono `null` invece di inventare
+  contenuto; un file vuoto non produce una stringa vuota fantasma.
 
 **Non ancora coperto** (richiede un DB reale, non eseguibile da questo sandbox): `planImport`/
 `importSuppliers` (dedup contro l'archivio esistente), tenant isolation end-to-end (`scope.ts`), test
@@ -304,7 +338,7 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 - `npx tsc --noEmit` — pulito (rieseguito dopo ogni fase, incluse le modifiche a classificazione/reveal e i
   nuovi fallback senza AI).
 - `npm run build` (`prisma generate && next build`) — completa con successo, tutte le route registrate.
-- `npm run test` (Vitest) — 43/43 test verdi.
+- `npm run test` (Vitest) — 47/47 test verdi.
 - `npm run lint` — **non verificabile**: il prototipo originale non aveva ESLint configurato e `next lint`
   richiede una configurazione interattiva al primo avvio, non disponibile in questo ambiente non interattivo.
 - Import reale delle 201 aziende verificato via query dirette su Neon (conteggi, duplicati, revisioni).
@@ -334,8 +368,8 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
    che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore, e che
    `OFFERTA_REVISIONATA` crei correttamente una nuova versione dell'offerta.
 4. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
-5. Document Room con estrazione fatti (Fase 8); UI per assegnare/correggere rating/categorie di un
-   fornitore esistente (sbloccherebbe il fattore "storico qualità" del punteggio di compatibilità, oggi a
-   zero informazione per tutto il database reale).
+5. Verificare che il build Vercel installi correttamente `pdf-parse`/`@napi-rs/canvas` (binario nativo) e
+   che l'estrazione testo funzioni su un PDF reale in produzione, non solo nel sandbox locale.
 6. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
    inline dal prototipo originale, non referenzia la baseline versionata).
+7. i18n IT/EN completo, duplicazione progetto, report finale (Fasi 9-11).

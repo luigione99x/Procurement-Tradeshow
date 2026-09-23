@@ -33,7 +33,14 @@ export default async function BriefPage({ params }: { params: { id: string } }) 
   const documentiEl = (
     <DocumentiUploader
       praticaId={praticaId}
-      initial={documenti.map((d) => ({ id: d.id, fileName: d.fileName, tipo: d.tipo, blobUrl: d.blobUrl, uploadedAt: d.uploadedAt.toISOString() }))}
+      initial={documenti.map((d) => ({
+        id: d.id,
+        fileName: d.fileName,
+        tipo: d.tipo,
+        blobUrl: d.blobUrl,
+        uploadedAt: d.uploadedAt.toISOString(),
+        haTestoEstratto: Boolean(d.extractedText),
+      }))}
     />
   );
 

@@ -7,6 +7,7 @@ type Documento = {
   tipo: string;
   blobUrl: string;
   uploadedAt: string;
+  haTestoEstratto?: boolean;
 };
 
 const TIPI = [
@@ -16,6 +17,8 @@ const TIPI = [
   { value: "IMMAGINE_RIFERIMENTO", label: "Immagine di riferimento" },
   { value: "PREVENTIVO_PRECEDENTE", label: "Preventivo precedente" },
   { value: "MATERIALE_BRAND", label: "Materiale brand" },
+  { value: "CONTRATTO", label: "Contratto" },
+  { value: "OFFERTA_PDF", label: "Offerta (PDF)" },
   { value: "ALTRO", label: "Altro" },
 ];
 
@@ -68,7 +71,18 @@ export default function DocumentiUploader({ praticaId, initial }: { praticaId: s
             <a href={d.blobUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline truncate max-w-[70%]">
               {d.fileName}
             </a>
-            <span className="text-xs text-slate-400">{TIPI.find((t) => t.value === d.tipo)?.label || d.tipo}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">{TIPI.find((t) => t.value === d.tipo)?.label || d.tipo}</span>
+              {d.haTestoEstratto ? (
+                <span className="badge bg-green-50 text-green-700 border border-green-200 text-[10px]" title="Il testo è stato estratto: viene usato come contesto da capitolato, assistente e piano">
+                  testo estratto
+                </span>
+              ) : (
+                <span className="badge bg-slate-50 text-slate-400 border border-slate-200 text-[10px]" title="Nessun testo estratto (formato non supportato o PDF scansionato senza testo): il file resta consultabile ma non alimenta l'AI">
+                  solo file
+                </span>
+              )}
+            </span>
           </li>
         ))}
         {documenti.length === 0 && <li className="text-slate-400">Nessun documento caricato.</li>}
