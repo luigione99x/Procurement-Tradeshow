@@ -17,6 +17,14 @@ type Campaign = {
   invii: Invio[];
 };
 
+const INVIO_STATUS_LABEL: Record<string, string> = {
+  BOZZA: "Bozza",
+  PRONTO: "In coda (tetto giornaliero)",
+  INVIO_IN_CORSO: "Invio in corso",
+  INVIATO: "Inviata",
+  FALLITO: "Fallita",
+};
+
 export default function RFQBozzaReview({ praticaId, campaigns }: { praticaId: string; campaigns: Campaign[] }) {
   const router = useRouter();
   const [edits, setEdits] = useState<Record<string, { subject: string; bodyText: string; toEmail: string }>>({});
@@ -107,29 +115,39 @@ export default function RFQBozzaReview({ praticaId, campaigns }: { praticaId: st
       {inCorsoOInviate.length > 0 && (
         <div className="card">
           <h3 className="font-semibold mb-3">Campagne RFQ inviate</h3>
-          <div className="space-y-2 text-sm">
-            {inCorsoOInviate.map((c) => (
-              <div key={c.id}>
-                <div className="font-medium">
-                  Campagna — <span className="badge bg-slate-100 text-slate-700">{c.status}</span>
+          <div className="space-y-3 text-sm">
+            {inCorsoOInviate.map((c) => {
+              const inviate = c.invii.filter((i) => i.status === "INVIATO").length;
+              const inCoda = c.invii.filter((i) => i.status === "PRONTO").length;
+              return (
+                <div key={c.id}>
+                  <div className="font-medium">
+                    Campagna — <span className="badge bg-slate-100 text-slate-700">{c.status}</span>
+                  </div>
+                  {inCoda > 0 && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      {inviate} inviate, {inCoda} in coda: partono a un tetto massimo al giorno per proteggere la casella email
+                      condivisa, non tutte insieme. Riprendono automaticamente ogni giorno finché non sono tutte inviate.
+                    </p>
+                  )}
+                  <ul className="ml-4 list-disc">
+                    {c.invii.map((i) => (
+                      <li key={i.id}>
+                        {i.fornitore.nome} ({i.toEmail}) —{" "}
+                        <span
+                          className={
+                            i.status === "INVIATO" ? "text-green-700" : i.status === "FALLITO" ? "text-red-700" : "text-slate-500"
+                          }
+                        >
+                          {INVIO_STATUS_LABEL[i.status] ?? i.status}
+                        </span>
+                        {i.errorMessage && <span className="text-red-600"> — {i.errorMessage}</span>}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className="ml-4 list-disc">
-                  {c.invii.map((i) => (
-                    <li key={i.id}>
-                      {i.fornitore.nome} ({i.toEmail}) —{" "}
-                      <span
-                        className={
-                          i.status === "INVIATO" ? "text-green-700" : i.status === "FALLITO" ? "text-red-700" : "text-slate-500"
-                        }
-                      >
-                        {i.status}
-                      </span>
-                      {i.errorMessage && <span className="text-red-600"> — {i.errorMessage}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -385,6 +385,29 @@ l'anno dopo): copia SOLO la parte "impostazione", mai l'esecuzione.
   regola sopra); documenti caricati non copiati (i file richiederebbero una copia separata del blob, non
   solo del riferimento).
 
+## Correzione post-collaudo utente — Tetto giornaliero sugli invii RFQ (completata)
+
+L'utente, testando l'invio RFQ a ~200 fornitori, ha segnalato giustamente il rischio di mandare tutte le
+email in un colpo solo da un'unica casella condivisa (spam/blocco). Verificato prima di implementare: il
+piano Vercel Hobby limita i cron a 1 esecuzione al giorno, quindi un invio "ogni 30 minuti" nativo non è
+possibile senza un servizio di scheduling esterno (non richiesto per ora, scelta dell'utente: tetto
+giornaliero semplice).
+
+- `src/lib/jobs/inviaRfq.ts` riscritto: `eseguiInvioInCodaGiornaliero()` sostituisce l'invio immediato di
+  un'intera campagna. Calcola quanti invii sono già partiti "oggi" (mezzanotte UTC), pesca dalla **coda
+  globale** (tutte le campagne pronte di tutte le pratiche, non solo una) in ordine di anzianità fino al
+  tetto rimasto (`RFQ_INVII_MAX_AL_GIORNO`, default 30/giorno), invia solo quelli. Il resto resta `PRONTO`.
+- `POST .../rfq/[campaignId]/approve` non spedisce più l'intera campagna: mette gli invii in coda e consuma
+  subito il budget rimasto di oggi. Il cron `email-poll` (già esistente, unico slot giornaliero disponibile)
+  ora richiama anche `eseguiInvioInCodaGiornaliero()` dopo il poll Gmail, così la coda riprende
+  automaticamente ogni giorno finché non è tutta inviata, senza bisogno di un secondo cron (evita anche il
+  rischio di superare eventuali limiti sul numero di cron del piano).
+- `RFQBozzaReview.tsx` mostra ora quanti invii sono partiti vs in coda e spiega perché, invece di mostrare
+  lo stato grezzo `PRONTO` senza contesto.
+- **Non fatto**: invio davvero distribuito nell'arco della giornata (es. 1 ogni 30 minuti) — richiederebbe
+  un servizio di scheduling esterno (es. Upstash QStash); l'utente ha scelto di rimandare questa scelta.
+  Nessuna UI per modificare `RFQ_INVII_MAX_AL_GIORNO` (solo variabile d'ambiente).
+
 ## Fasi 9 — non iniziata
 
 i18n IT/EN.

@@ -3,7 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
 import { requireGmail } from "@/lib/integrations";
-import { eseguiInvioRFQ } from "@/lib/jobs/inviaRfq";
+import { eseguiInvioInCodaGiornaliero } from "@/lib/jobs/inviaRfq";
 import { logAttivita } from "@/lib/audit";
 
 export const maxDuration = 120;
@@ -42,7 +42,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
       descrizione: `Campagna RFQ approvata: invio a ${campaign.invii.length} fornitori autorizzato`,
     });
 
-    waitUntil(eseguiInvioRFQ(campaign.id));
+    // Non parte più tutta la campagna in un colpo solo (Sezione 16): questa
+    // chiamata consuma solo la quota giornaliera rimasta oggi, dalla coda
+    // globale (anche altre campagne pronte). Il resto lo riprende il cron
+    // email-poll il giorno dopo.
+    waitUntil(eseguiInvioInCodaGiornaliero());
 
     const updated = await prisma.rFQCampaign.findUnique({
       where: { id: campaign.id },
