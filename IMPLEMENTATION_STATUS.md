@@ -152,11 +152,66 @@ disponibili.
 - **Test aggiunti**: `src/lib/rfqTemplate.test.ts` (3 test) e `src/lib/capitolatoTemplate.test.ts` (2 test) —
   entrambe funzioni pure, nessun DB richiesto. Totale ora 32 test, tutti verdi.
 
-## Fasi 6-11 — non iniziate
+## Fase 4 (continua) — Provider AI duale OpenAI+Anthropic e separazione staff/cliente (completata)
 
-Shortlist con punteggio di compatibilità, negoziazione a round con approvazione, Document Room con
-estrazione fatti, Project Assistant, provider AI duale OpenAI+Anthropic, i18n IT/EN, duplicazione progetto,
-report finale.
+L'utente segnala tre problemi bloccanti/di fiducia: (1) non aveva modo di dare una chiave Claude perché il
+codice leggeva solo `OPENAI_API_KEY`, nessun punto di lettura per Anthropic esisteva; (2) il cliente poteva
+vedere lo stato di configurazione delle integrazioni AI (pagina Impostazioni, banner, nav); (3) l'assistente
+AI di progetto (bolla fluttuante) si sovrapponeva visivamente al tool di sourcing/vendita fornitori su ogni
+tab, dando l'impressione di un'unica cosa confusa invece di due strumenti distinti.
+
+- **Provider AI duale**: `src/lib/openai.ts` ha ora un client Anthropic accanto a quello OpenAI. `callAI()`
+  prova prima OpenAI (se configurata) poi Anthropic in automatico su chiave mancante o su errore di
+  chiamata, senza che le funzioni esportate (qualificazione, capitolato, RFQ, classificazione email, ecc.)
+  debbano saperlo. Nuovo `anthropicStatus()`/`aiStatus()`/`requireAI()` in `integrations.ts`; ogni punto che
+  decideva in base a `openaiStatus()` ora usa `aiStatus()` (disponibilità di AI in generale, non solo
+  OpenAI). Nuovo valore enum `ANTHROPIC` su `IntegrationProvider` (migrazione applicata sul Neon reale).
+- **Config AI invisibile al cliente**: pagina Impostazioni, link "Impostazioni" in nav, banner "funzioni non
+  attive" e le relative API (`GET/POST /api/impostazioni/integrazioni*`) ora richiedono ruolo staff Miralis.
+  Un cliente non vede più se/quale provider AI è configurato, né lo stato delle altre integrazioni.
+- **Assistente AI separato dal tool fornitori**: `ChatAssistente` ha ora una variante `embedded` con tab
+  dedicata "Assistente AI" nella pratica (`/dashboard/pratiche/[id]/assistente`), al posto della bolla
+  fluttuante mostrata su ogni tab (rimossa dal layout condiviso): resta visivamente separata dalla tab
+  "Fornitori".
+- **Chiave OpenAI impostata**: l'utente ha fornito una chiave OpenAI in chat; non è stato possibile
+  impostarla direttamente su Vercel da questa sessione (lo scope del team Vercel del progetto richiede una
+  ri-autenticazione non disponibile qui — errore 403 "Not authorized... scope ai-tradeshow-app"), quindi
+  l'utente la sta impostando manualmente in Vercel → Settings → Environment Variables → `OPENAI_API_KEY`
+  (Production + Preview) e ridistribuendo.
+
+## Fase 7 (parziale) — Negoziazione a round con approvazione (completata: BAFO + richiesta puntuale)
+
+- **Bug critico corretto in `pollGmail.ts`**: la classificazione email distingueva già `OFFERTA_RICEVUTA` da
+  `OFFERTA_REVISIONATA`, ma solo la prima creava una riga `Offerta`. Una risposta arrivata dopo una richiesta
+  di negoziazione veniva classificata correttamente ma **mai salvata**: qualunque round di negoziazione
+  sarebbe stato inutile. Ora entrambe le classificazioni creano una nuova versione dell'offerta
+  (`versionNumber` incrementale per fornitore).
+- **Richiesta di round**: nuova route `POST /api/pratiche/[id]/offerte/[offertaId]/negozia` (solo staff
+  Miralis) — due tipi: `BAFO` (richiesta della migliore offerta finale) e `PUNTUALE` (richiesta mirata su un
+  punto specifico, es. "puoi migliorare il prezzo del montaggio?"). Genera una bozza (AI se configurata,
+  altrimenti `src/lib/negoziazioneTemplate.ts` deterministico, stesso pattern di `rfqTemplate.ts`) **senza
+  inviarla**: l'invio resta un passo separato e approvato esplicitamente dallo staff, riusando
+  `/comunicazioni/[threadId]/invia` esattamente come per le "domande mancanti" già esistenti. UI aggiunta in
+  `OffertePanel.tsx` (pulsanti "Richiedi BAFO" e campo libero + "Richiedi" per la richiesta puntuale). Invio
+  con `context: "NEGOZIAZIONE"` aggiorna `Fornitore.stato = NEGOTIATING`.
+- **Confronto senza duplicati**: dopo un round, un fornitore può avere più versioni della stessa offerta; la
+  pagina Offerte ora mostra solo l'ultima versione per fornitore nel confronto (le precedenti restano in DB
+  per storico, non spariscono).
+- **Chiusura di un gap di sicurezza scoperto lungo la strada**: la scheda Offerte non aveva mai avuto la
+  separazione staff/cliente applicata a Fornitori/Comunicazioni — qualunque utente autenticato (cliente
+  incluso) poteva modificare i campi di un'offerta, generare/inviare domande e registrare la decisione
+  finale. Allineato allo stesso principio delle altre schede operative (Sezione 27: riservate allo staff
+  Miralis nell'MVP): `PATCH offerte/[id]`, `POST domande`, `POST negozia`, `POST decisione` ora richiedono
+  ruolo staff; nuovo `OfferteClienteView.tsx` per la vista di sola lettura del cliente (redatta
+  server-side, stessa protezione Sezione 6 già in uso).
+- **Test aggiunti**: `src/lib/negoziazioneTemplate.test.ts` (2 test). Totale ora 34 test, tutti verdi.
+- **Non fatto in questa fase**: punteggio di compatibilità per la shortlist (resta manuale), storico
+  negoziazione visibile in UI (oggi solo via `AuditLog`/`versionNumber`, nessuna vista "timeline" dedicata).
+
+## Fasi 6, 8-11 — non iniziate
+
+Shortlist con punteggio di compatibilità, Document Room con estrazione fatti, i18n IT/EN, duplicazione
+progetto, report finale.
 
 ## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
@@ -173,7 +228,7 @@ viene creato una sola volta, controllo per nome).
 
 ## Test automatici (Sezione 36) — avviati
 
-Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 32 test, tutti verdi, concentrati
+Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 34 test, tutti verdi, concentrati
 sulle funzioni pure che non richiedono un DB (eseguibili anche in questo ambiente sandbox senza accesso
 diretto a Postgres):
 
@@ -190,6 +245,8 @@ diretto a Postgres):
 - `src/lib/capitolatoTemplate.test.ts` — le risposte di qualificazione vengono riorganizzate in
   requisiti/servizi/vincoli senza perdita di informazione; i campi non specificati restano vuoti/segnalati
   come tali, mai inventati.
+- `src/lib/negoziazioneTemplate.test.ts` — la bozza BAFO chiede la migliore offerta finale, la bozza
+  puntuale include la nota specifica dello staff nel corpo dell'email.
 
 **Non ancora coperto** (richiede un DB reale, non eseguibile da questo sandbox): `planImport`/
 `importSuppliers` (dedup contro l'archivio esistente), tenant isolation end-to-end (`scope.ts`), test
@@ -201,7 +258,7 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 - `npx tsc --noEmit` — pulito (rieseguito dopo ogni fase, incluse le modifiche a classificazione/reveal e i
   nuovi fallback senza AI).
 - `npm run build` (`prisma generate && next build`) — completa con successo, tutte le route registrate.
-- `npm run test` (Vitest) — 32/32 test verdi.
+- `npm run test` (Vitest) — 34/34 test verdi.
 - `npm run lint` — **non verificabile**: il prototipo originale non aveva ESLint configurato e `next lint`
   richiede una configurazione interattiva al primo avvio, non disponibile in questo ambiente non interattivo.
 - Import reale delle 201 aziende verificato via query dirette su Neon (conteggi, duplicati, revisioni).
@@ -218,13 +275,17 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 
 ## Prossimo passo consigliato
 
-1. Collaudare manualmente (browser) il percorso completo senza AI: creare un progetto → compilare
-   qualificazione via modulo manuale → generare capitolato senza AI → aggiungere fornitori dal database
-   Miralis → generare RFQ senza AI → verificare che i testi generati siano corretti e completi.
-2. Collaudare `pollGmail.ts` con una vera casella Gmail configurata (nessuna in questa sessione): verificare
-   che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore.
-3. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
-4. Negoziazione a round con approvazione (Fase 7) — sblocca il resto del ciclo "shortlist → contatto →
-   confronto → scelta" richiesto dai criteri di accettazione.
-5. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
+1. Verificare che `OPENAI_API_KEY` sia stata impostata su Vercel (Production + Preview) e ridistribuita —
+   l'utente la sta impostando manualmente, non è stato possibile farlo da questa sessione per uno scope
+   Vercel non autorizzato qui.
+2. Collaudare manualmente (browser) il percorso completo con AI ora disponibile: creare un progetto →
+   qualificazione via chat → capitolato → aggiungere fornitori dal database Miralis → generare RFQ →
+   simulare una risposta con offerta → richiedere un round di negoziazione (BAFO) → verificare che la
+   revisione arrivi come nuova versione dell'offerta nel confronto.
+3. Collaudare `pollGmail.ts` con una vera casella Gmail configurata (nessuna in questa sessione): verificare
+   che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore, e che
+   `OFFERTA_REVISIONATA` crei correttamente una nuova versione dell'offerta.
+4. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
+5. Shortlist con punteggio di compatibilità (Fase 6) e Document Room con estrazione fatti (Fase 8).
+6. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
    inline dal prototipo originale, non referenzia la baseline versionata).

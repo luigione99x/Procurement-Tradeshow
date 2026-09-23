@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
+import { requireMiralisStaff } from "@/lib/authz";
 import { generaDomandeMancanti } from "@/lib/openai";
 
 const CAMPI_LABEL: Record<string, string> = {
@@ -22,6 +23,7 @@ const CAMPI_LABEL: Record<string, string> = {
 export async function POST(req: NextRequest, { params }: { params: { id: string; offertaId: string } }) {
   try {
     const user = await authOrThrow();
+    requireMiralisStaff(user);
     await getPraticaScoped(params.id, user);
 
     const offerta = await prisma.offerta.findUnique({ where: { id: params.offertaId }, include: { fornitore: true } });

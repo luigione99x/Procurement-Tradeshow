@@ -116,14 +116,27 @@ export async function eseguiPollGmail() {
         }
       }
 
-      if (classificazione?.classificazione === "OFFERTA_RICEVUTA" && thread.fornitoreId) {
+      // OFFERTA_RICEVUTA (prima offerta) e OFFERTA_REVISIONATA (risposta a una
+      // richiesta di negoziazione/BAFO) creano entrambe una nuova versione
+      // dell'offerta per questo fornitore: senza questo, una revisione arrivata
+      // dopo un round di negoziazione veniva classificata correttamente ma MAI
+      // salvata, rendendo inutile qualunque richiesta di revisione.
+      if (
+        (classificazione?.classificazione === "OFFERTA_RICEVUTA" || classificazione?.classificazione === "OFFERTA_REVISIONATA") &&
+        thread.fornitoreId
+      ) {
         const estrazione = await estraiOfferta(full.bodyText || "").catch(() => null);
         if (estrazione) {
+          const ultimaVersione = await prisma.offerta.findFirst({
+            where: { praticaId: thread.praticaId, fornitoreId: thread.fornitoreId },
+            orderBy: { versionNumber: "desc" },
+          });
           const offerta = await prisma.offerta.create({
             data: {
               praticaId: thread.praticaId,
               fornitoreId: thread.fornitoreId,
               emailMessageId: message.id,
+              versionNumber: (ultimaVersione?.versionNumber || 0) + 1,
               stato: "DA_VERIFICARE",
               prezzo: estrazione.prezzo ?? null,
               valuta: estrazione.valuta || "EUR",

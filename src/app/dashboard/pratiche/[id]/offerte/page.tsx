@@ -1,11 +1,13 @@
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { isClient } from "@/lib/authz";
 import { redactNestedFornitore } from "@/lib/supplierVisibility";
 import OffertePanel from "@/components/OffertePanel";
+import OfferteClienteView from "@/components/OfferteClienteView";
 
 export default async function OffertePage({ params }: { params: { id: string } }) {
   const user = await requireUser();
-  const [offerte, decisione] = await Promise.all([
+  const [offerteRaw, decisione] = await Promise.all([
     prisma.offerta.findMany({
       where: { praticaId: params.id, stato: { not: "SCARTATA" } },
       include: { fornitore: true, fieldSources: true },
@@ -14,6 +16,17 @@ export default async function OffertePage({ params }: { params: { id: string } }
     prisma.decisione.findUnique({ where: { praticaId: params.id }, include: { offertaScelta: { include: { fornitore: true } } } }),
   ]);
 
+  // Dopo un round di negoziazione (BAFO/puntuale) un fornitore può avere più
+  // versioni della stessa offerta (versionNumber crescente): il confronto
+  // mostra solo l'ultima versione per fornitore, le precedenti restano in DB
+  // per storico ma non duplicano le colonne del confronto.
+  const ultimaVersionePerFornitore = new Map<string, (typeof offerteRaw)[number]>();
+  for (const o of offerteRaw) {
+    const attuale = ultimaVersionePerFornitore.get(o.fornitoreId);
+    if (!attuale || o.versionNumber > attuale.versionNumber) ultimaVersionePerFornitore.set(o.fornitoreId, o);
+  }
+  const offerte = Array.from(ultimaVersionePerFornitore.values());
+
   // Protezione Sezione 6: un'offerta di un fornitore proprietario non ancora
   // rivelato non deve esporre al cliente il nome/contatti nel payload della pagina.
   const serializzate = offerte.map((o) => ({
@@ -21,6 +34,14 @@ export default async function OffertePage({ params }: { params: { id: string } }
     fornitore: redactNestedFornitore(o.fornitore, user!),
     prezzo: o.prezzo?.toString() ?? null,
   }));
+
+  // Come per Fornitori/Comunicazioni, la scheda operativa (modifica campi,
+  // richiesta di negoziazione, registrazione della decisione finale) resta
+  // riservata allo staff Miralis nell'MVP: il cliente ha una vista di sola
+  // lettura, redatta server-side.
+  if (isClient(user!)) {
+    return <OfferteClienteView offerte={serializzate as any} decisione={decisione ? { fornitoreNome: decisione.offertaScelta.fornitore.nome, prezzoFinale: decisione.prezzoFinale?.toString() ?? null } : null} />;
+  }
 
   return (
     <div className="space-y-4">

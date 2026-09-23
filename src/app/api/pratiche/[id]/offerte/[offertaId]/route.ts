@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError } from "@/lib/scope";
+import { requireMiralisStaff } from "@/lib/authz";
 import { logAttivita } from "@/lib/audit";
 
 const CAMPI_MODIFICABILI = [
@@ -28,6 +29,7 @@ const CAMPI_MODIFICABILI = [
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; offertaId: string } }) {
   try {
     const user = await authOrThrow();
+    requireMiralisStaff(user);
     await getPraticaScoped(params.id, user);
     const body = await req.json();
 

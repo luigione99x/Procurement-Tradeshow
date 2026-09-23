@@ -456,4 +456,23 @@ Rispondi SOLO in JSON con "subject" e "body".`;
   return jsonCompletion<{ subject: string; body: string }>(system, user);
 }
 
+// ---------- 11. Negoziazione a round (BAFO / richiesta puntuale) ----------
+
+export async function generaBozzaNegoziazione(params: {
+  fornitoreNome: string;
+  tipo: "BAFO" | "PUNTUALE";
+  notaStaff?: string; // per PUNTUALE: cosa chiedere di preciso (es. "puoi migliorare il prezzo del montaggio?")
+  offertaAttuale: Record<string, unknown>;
+}): Promise<{ subject: string; body: string }> {
+  const scopo =
+    params.tipo === "BAFO"
+      ? "Chiedi al fornitore la sua MIGLIORE OFFERTA FINALE (BAFO): il cliente sta confrontando più preventivi e questa è l'ultima occasione per il fornitore di migliorare prezzo e/o condizioni prima della decisione finale."
+      : `Chiedi al fornitore di rivedere specificamente questo punto della sua offerta: "${params.notaStaff}". Non chiedere una revisione generale, resta focalizzato su questo punto.`;
+  const system = `Scrivi una email professionale in italiano per riaprire la negoziazione con un fornitore che ha già inviato un'offerta per uno stand fieristico.
+${scopo}
+Usa l'offerta attuale fornita come contesto (non ripeterla per intero, cita solo ciò che serve). Tono cordiale ma professionale, mantieni il rapporto positivo. Rispondi SOLO in JSON con "subject" e "body".`;
+  const user = JSON.stringify(params);
+  return jsonCompletion<{ subject: string; body: string }>(system, user);
+}
+
 export { textCompletion };

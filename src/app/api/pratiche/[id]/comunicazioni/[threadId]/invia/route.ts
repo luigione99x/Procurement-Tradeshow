@@ -15,7 +15,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
     await getPraticaScoped(params.id, user);
     requireGmail();
 
-    const { subject, body } = (await req.json()) as { subject: string; body: string };
+    const { subject, body, context } = (await req.json()) as {
+      subject: string;
+      body: string;
+      // Se valorizzato con "NEGOZIAZIONE", questo invio è una richiesta di
+      // round di negoziazione (BAFO o puntuale): aggiorna lo stato del
+      // fornitore per riflettere che è in trattativa attiva.
+      context?: "NEGOZIAZIONE";
+    };
     const thread = await prisma.emailThread.findUnique({
       where: { id: params.threadId },
       include: { fornitore: true, messages: { orderBy: { createdAt: "desc" } } },
@@ -49,6 +56,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
       },
     });
     await prisma.emailThread.update({ where: { id: thread.id }, data: { lastMessageAt: new Date() } });
+
+    if (context === "NEGOZIAZIONE" && thread.fornitoreId) {
+      await prisma.fornitore.update({ where: { id: thread.fornitoreId }, data: { stato: "NEGOTIATING" } });
+    }
 
     await logAttivita({
       praticaId: params.id,

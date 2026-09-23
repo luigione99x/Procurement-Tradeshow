@@ -84,10 +84,15 @@ function Cell({ offerta, praticaId, field, onSaved }: { offerta: Offerta; pratic
   );
 }
 
+type NegoziazioneState = { threadId: string; draft: { subject: string; body: string } };
+
 export default function OffertePanel({ praticaId, initial }: { praticaId: string; initial: Offerta[] }) {
   const router = useRouter();
   const [offerte, setOfferte] = useState(initial);
   const [domandeState, setDomandeState] = useState<Record<string, { threadId: string; draft: { subject: string; body: string } }>>({});
+  const [negoziazioneState, setNegoziazioneState] = useState<Record<string, NegoziazioneState>>({});
+  const [notaPuntuale, setNotaPuntuale] = useState<Record<string, string>>({});
+  const [negoziandoId, setNegoziandoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showDecisione, setShowDecisione] = useState<string | null>(null);
 
@@ -121,6 +126,42 @@ export default function OffertePanel({ praticaId, initial }: { praticaId: string
         delete next[offertaId];
         return next;
       });
+    }
+  }
+
+  async function richiediNegoziazione(offertaId: string, tipo: "BAFO" | "PUNTUALE") {
+    setError(null);
+    setNegoziandoId(offertaId);
+    const res = await fetch(`/api/pratiche/${praticaId}/offerte/${offertaId}/negozia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, notaStaff: notaPuntuale[offertaId] }),
+    });
+    setNegoziandoId(null);
+    if (res.ok) {
+      const data = await res.json();
+      setNegoziazioneState((s) => ({ ...s, [offertaId]: { threadId: data.threadId, draft: data.draft } }));
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Errore nella preparazione della richiesta di negoziazione");
+    }
+  }
+
+  async function inviaNegoziazione(offertaId: string) {
+    const n = negoziazioneState[offertaId];
+    if (!n) return;
+    const res = await fetch(`/api/pratiche/${praticaId}/comunicazioni/${n.threadId}/invia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...n.draft, context: "NEGOZIAZIONE" }),
+    });
+    if (res.ok) {
+      setNegoziazioneState((s) => {
+        const next = { ...s };
+        delete next[offertaId];
+        return next;
+      });
+      router.refresh();
     }
   }
 
@@ -186,6 +227,49 @@ export default function OffertePanel({ praticaId, initial }: { praticaId: string
                 </button>
               </div>
             )}
+
+            <div className="border-t border-slate-100 mt-3 pt-3">
+              <p className="text-xs font-medium text-slate-500 mb-2">Negoziazione</p>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-secondary text-xs" onClick={() => richiediNegoziazione(o.id, "BAFO")} disabled={negoziandoId === o.id}>
+                  {negoziandoId === o.id ? "..." : "Richiedi BAFO"}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <input
+                  className="input text-xs flex-1 min-w-[10rem]"
+                  placeholder="Punto specifico da chiedere (es. prezzo montaggio)..."
+                  value={notaPuntuale[o.id] || ""}
+                  onChange={(e) => setNotaPuntuale((s) => ({ ...s, [o.id]: e.target.value }))}
+                />
+                <button
+                  className="btn-secondary text-xs"
+                  onClick={() => richiediNegoziazione(o.id, "PUNTUALE")}
+                  disabled={negoziandoId === o.id || !notaPuntuale[o.id]?.trim()}
+                >
+                  Richiedi
+                </button>
+              </div>
+              {negoziazioneState[o.id] && (
+                <div className="border border-slate-200 rounded p-2 mt-2">
+                  <input
+                    className="input mb-1 text-sm"
+                    value={negoziazioneState[o.id].draft.subject}
+                    onChange={(e) => setNegoziazioneState((s) => ({ ...s, [o.id]: { ...s[o.id], draft: { ...s[o.id].draft, subject: e.target.value } } }))}
+                  />
+                  <textarea
+                    className="input text-sm"
+                    rows={5}
+                    value={negoziazioneState[o.id].draft.body}
+                    onChange={(e) => setNegoziazioneState((s) => ({ ...s, [o.id]: { ...s[o.id], draft: { ...s[o.id].draft, body: e.target.value } } }))}
+                  />
+                  <button className="btn-primary text-xs mt-2" onClick={() => inviaNegoziazione(o.id)}>
+                    Approva e invia
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button className="btn-primary text-xs mt-3" onClick={() => setShowDecisione(o.id)}>
               Scegli questa offerta
             </button>

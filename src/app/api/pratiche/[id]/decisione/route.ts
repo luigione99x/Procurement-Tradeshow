@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
+import { requireMiralisStaff } from "@/lib/authz";
 import { calcolaFee } from "@/lib/fee";
 import { logAttivita } from "@/lib/audit";
 
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
+    requireMiralisStaff(user);
     await getPraticaScoped(params.id, user);
     const body = await req.json() as {
       offertaSceltaId: string;
