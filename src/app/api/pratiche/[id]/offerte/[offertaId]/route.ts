@@ -28,7 +28,7 @@ const CAMPI_MODIFICABILI = [
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; offertaId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const body = await req.json();
 
     const data: Record<string, unknown> = {};

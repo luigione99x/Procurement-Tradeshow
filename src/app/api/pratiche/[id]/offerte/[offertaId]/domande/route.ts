@@ -22,7 +22,7 @@ const CAMPI_LABEL: Record<string, string> = {
 export async function POST(req: NextRequest, { params }: { params: { id: string; offertaId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
 
     const offerta = await prisma.offerta.findUnique({ where: { id: params.offertaId }, include: { fornitore: true } });
     if (!offerta || offerta.praticaId !== params.id) throw new ApiError(404, "Offerta non trovata");

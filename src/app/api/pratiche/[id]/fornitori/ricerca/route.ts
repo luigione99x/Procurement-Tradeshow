@@ -11,7 +11,7 @@ export const maxDuration = 300;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const jobs = await prisma.backgroundJobRun.findMany({
       where: { jobType: "ricerca_fornitori", dedupeKey: { startsWith: `ricerca-fornitori-${params.id}` } },
       orderBy: { startedAt: "desc" },
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     requireOpenAI();
     requireSerper();
 

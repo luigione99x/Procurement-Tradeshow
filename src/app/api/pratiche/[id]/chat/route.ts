@@ -9,7 +9,7 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const context = (req.nextUrl.searchParams.get("context") || "ASSISTENTE") as "ASSISTENTE" | "QUALIFICAZIONE";
     const messages = await prisma.chatMessage.findMany({
       where: { praticaId: params.id, context },
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     const { context, message } = (await req.json()) as { context: "ASSISTENTE" | "QUALIFICAZIONE"; message: string };
 
     await prisma.chatMessage.create({

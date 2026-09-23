@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isClient } from "@/lib/authz";
+import { fornitoriForRole } from "@/lib/supplierVisibility";
 
 function fmtDate(d: Date | null) {
   if (!d) return "—";
@@ -29,8 +31,10 @@ export default async function PanoramicaPage({ params }: { params: { id: string 
     scadenzeVicine,
   ] = await Promise.all([
     prisma.pratica.findUnique({ where: { id: praticaId } }),
+    // Sezione 32: il log del cliente non deve mai contenere nomi/dettagli di
+    // fornitori proprietari Miralis non ancora rivelati -> filtro per audience.
     prisma.auditLog.findMany({
-      where: { praticaId, createdAt: { gt: from } },
+      where: { praticaId, createdAt: { gt: from }, ...(isClient(user!) ? { audience: "CLIENT_SAFE" } : {}) },
       orderBy: { createdAt: "desc" },
       take: 30,
     }),
@@ -56,9 +60,11 @@ export default async function PanoramicaPage({ params }: { params: { id: string 
     create: { praticaId, userId: user!.id },
   });
 
-  const fornitoriSenzaRispostaFiltrati = fornitoriSenzaRisposta.filter(
+  const fornitoriSenzaRispostaFiltratiRaw = fornitoriSenzaRisposta.filter(
     (f) => f.emailThreads.every((t) => t.messages.every((m) => m.direction === "OUTBOUND")) && f.offerte.length === 0
   );
+  // Redazione server-side: il cliente vede solo nome/dettagli dei fornitori rivelati.
+  const fornitoriSenzaRispostaFiltrati = fornitoriForRole(fornitoriSenzaRispostaFiltratiRaw, user!);
 
   const decisioniInAttesa: { label: string; href: string }[] = [];
   if (capitolatoInAttesa) decisioniInAttesa.push({ label: "Approvare il capitolato", href: `/dashboard/pratiche/${praticaId}/brief` });
@@ -95,7 +101,7 @@ export default async function PanoramicaPage({ params }: { params: { id: string 
           <ul className="space-y-1 text-sm">
             {fornitoriSenzaRispostaFiltrati.map((f) => (
               <li key={f.id} className="text-slate-700">
-                {f.nome} — nessuna risposta ricevuta
+                {f.nome ?? (f as { placeholderLabel?: string }).placeholderLabel} — nessuna risposta ricevuta
               </li>
             ))}
           </ul>

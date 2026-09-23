@@ -10,7 +10,7 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     return NextResponse.json({ strategia: pratica.strategiaFornitori, categorie: pratica.categorieFornitori });
   } catch (err) {
     return handleApiError(err);
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const { strategia } = (await req.json()) as { strategia: "ALLESTITORE_UNICO" | "MULTI_FORNITORE" };
 
     if (strategia === "ALLESTITORE_UNICO") {
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
     if (!capitolato) throw new ApiError(400, "Approva prima il capitolato");
 
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     const categorie = await determinaCategorieFornitori({
       capitolatoMarkdown: capitolato.contentMarkdown,
       briefPratica: pratica as unknown as Record<string, unknown>,
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const { categorie } = (await req.json()) as { categorie: CategoriaFornitore[] };
     await prisma.pratica.update({ where: { id: params.id }, data: { categorieFornitori: categorie as any } });
     return NextResponse.json({ categorie });

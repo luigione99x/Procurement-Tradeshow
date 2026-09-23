@@ -11,7 +11,7 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest, { params }: { params: { id: string; campaignId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     requireGmail();
 
     const campaign = await prisma.rFQCampaign.findUnique({

@@ -23,14 +23,17 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hashPassword(body.password);
 
     const { user, company } = await prisma.$transaction(async (tx) => {
-      const company = await tx.company.create({ data: { name: body.companyName } });
+      // Il signup pubblico crea sempre un tenant CLIENT (azienda espositrice):
+      // lo staff Miralis (MIRALIS_ADMIN/MIRALIS_OPERATOR) si crea solo via seed interno,
+      // mai da un form esposto pubblicamente.
+      const company = await tx.company.create({ data: { name: body.companyName, type: "CLIENT" } });
       const user = await tx.user.create({
         data: {
           companyId: company.id,
           email: body.email,
           name: body.name,
           passwordHash,
-          role: "ADMIN",
+          role: "CLIENT",
         },
       });
       // integrazioni non ancora collegate: stato iniziale visibile in Impostazioni

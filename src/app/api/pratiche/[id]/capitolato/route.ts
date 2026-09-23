@@ -9,7 +9,7 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const versioni = await prisma.capitolatoVersion.findMany({
       where: { praticaId: params.id },
       orderBy: { versionNumber: "desc" },
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
 
     const documenti = await prisma.documento.findMany({ where: { praticaId: params.id } });
     const documentiSommario = documenti

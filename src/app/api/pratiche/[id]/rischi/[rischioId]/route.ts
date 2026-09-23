@@ -6,7 +6,7 @@ import { logAttivita } from "@/lib/audit";
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; rischioId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const rischio = await prisma.rischio.findUnique({ where: { id: params.rischioId } });
     if (!rischio || rischio.praticaId !== params.id) throw new ApiError(404, "Rischio non trovato");
 

@@ -9,7 +9,7 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     return NextResponse.json({
       stato: pratica.qualificazioneStato,
       estrazione: pratica.qualificazioneEstrazione,
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     const body = (await req.json()) as {
       azione: "aggiorna" | "modifica" | "conferma" | "riapri";
       notaAggiuntiva?: string;

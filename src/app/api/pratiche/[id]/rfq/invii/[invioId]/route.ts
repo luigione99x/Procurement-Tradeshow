@@ -5,7 +5,7 @@ import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/s
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; invioId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const invio = await prisma.rFQInvio.findUnique({ where: { id: params.invioId } });
     if (!invio) throw new ApiError(404, "Invio non trovato");
     if (invio.status !== "BOZZA") throw new ApiError(400, "Questo invio è già stato approvato o inviato: non è più modificabile");
@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(req: NextRequest, { params }: { params: { id: string; invioId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const invio = await prisma.rFQInvio.findUnique({ where: { id: params.invioId } });
     if (!invio) throw new ApiError(404, "Invio non trovato");
     if (invio.status !== "BOZZA") throw new ApiError(400, "Non puoi rimuovere un invio già approvato o inviato");

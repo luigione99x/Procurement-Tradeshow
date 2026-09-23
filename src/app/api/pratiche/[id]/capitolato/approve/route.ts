@@ -6,7 +6,7 @@ import { logAttivita } from "@/lib/audit";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
 
     const versione = await prisma.capitolatoVersion.findFirst({
       where: { praticaId: params.id, status: "IN_ATTESA_APPROVAZIONE" },

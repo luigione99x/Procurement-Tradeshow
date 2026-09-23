@@ -5,7 +5,7 @@ import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/s
 export async function GET(req: NextRequest, { params }: { params: { id: string; threadId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const thread = await prisma.emailThread.findUnique({
       where: { id: params.threadId },
       include: {

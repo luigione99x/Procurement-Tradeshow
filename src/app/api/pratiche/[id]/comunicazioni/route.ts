@@ -5,7 +5,7 @@ import { authOrThrow, getPraticaScoped, handleApiError } from "@/lib/scope";
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const threads = await prisma.emailThread.findMany({
       where: { praticaId: params.id },
       orderBy: { lastMessageAt: "desc" },

@@ -6,7 +6,7 @@ import { logAttivita } from "@/lib/audit";
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     return NextResponse.json({ pratica });
   } catch (err) {
     return handleApiError(err);
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const body = await req.json();
 
     const allowed = [

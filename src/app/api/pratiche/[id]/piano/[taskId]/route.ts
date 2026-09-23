@@ -6,7 +6,7 @@ import { logAttivita } from "@/lib/audit";
 export async function PATCH(req: NextRequest, { params }: { params: { id: string; taskId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const task = await prisma.pianoAttivita.findUnique({ where: { id: params.taskId } });
     if (!task || task.praticaId !== params.id) throw new ApiError(404, "Attività non trovata");
 

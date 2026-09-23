@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { praticheWhereForUser } from "@/lib/scope";
+import { isMiralisStaff } from "@/lib/authz";
 import NuovaPraticaButton from "@/components/NuovaPraticaButton";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -16,8 +18,9 @@ const STATUS_LABEL: Record<string, string> = {
 export default async function DashboardHome() {
   const user = await requireUser();
   const pratiche = await prisma.pratica.findMany({
-    where: { companyId: user!.companyId, status: { not: "ARCHIVIATA" } },
+    where: { ...praticheWhereForUser(user!), status: { not: "ARCHIVIATA" } },
     orderBy: { updatedAt: "desc" },
+    include: isMiralisStaff(user!) ? { company: { select: { name: true } } } : undefined,
   });
 
   const riepiloghi = await Promise.all(
@@ -41,9 +44,20 @@ export default async function DashboardHome() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Fiere attive</h1>
-          <p className="text-slate-500 text-sm">Panoramica delle pratiche in corso per la tua azienda</p>
+          <p className="text-slate-500 text-sm">
+            {isMiralisStaff(user!)
+              ? "Panoramica dei progetti di tutti i clienti Miralis"
+              : "Panoramica delle pratiche in corso per la tua azienda"}
+          </p>
         </div>
-        <NuovaPraticaButton />
+        <div className="flex items-center gap-2">
+          {isMiralisStaff(user!) && (
+            <Link href="/dashboard/fornitori" className="btn-secondary">
+              Database fornitori
+            </Link>
+          )}
+          <NuovaPraticaButton />
+        </div>
       </div>
 
       {riepiloghi.length === 0 && (
@@ -61,6 +75,9 @@ export default async function DashboardHome() {
             </div>
             <p className="text-sm text-slate-500 mb-3">
               {pratica.fieraNome} {pratica.citta ? `· ${pratica.citta}` : ""}
+              {isMiralisStaff(user!) && (pratica as unknown as { company?: { name: string } }).company && (
+                <> · <span className="text-slate-400">{(pratica as unknown as { company: { name: string } }).company.name}</span></>
+              )}
             </p>
             <div className="flex flex-wrap gap-2 text-xs">
               {capitolatoInAttesa > 0 && (

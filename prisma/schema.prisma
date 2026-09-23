@@ -13,11 +13,22 @@ datasource db {
 }
 
 // ---------- Tenancy & auth ----------
+// Miralis opera come agenzia: UNA company di tipo MIRALIS (lo staff interno,
+// vede tutti i clienti/progetti) e N company di tipo CLIENT (un tenant per
+// azienda espositrice, isolamento dati invariato rispetto al prototipo originale).
+
+enum CompanyType {
+  MIRALIS
+  CLIENT
+}
 
 model Company {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   name      String
-  createdAt DateTime @default(now())
+  type      CompanyType @default(CLIENT)
+  lingua    String      @default("it") // "it" | "en", lingua preferita del tenant cliente
+  valuta    String      @default("EUR")
+  createdAt DateTime    @default(now())
 
   users             User[]
   pratiche          Pratica[]
@@ -26,8 +37,9 @@ model Company {
 }
 
 enum UserRole {
-  ADMIN // gestisce le pratiche per conto dei clienti (utente primario)
-  MARKETING // referente marketing del cliente espositore
+  MIRALIS_ADMIN // staff Miralis: vede tutti i clienti/progetti, gestisce database fornitori, fee, utenti
+  MIRALIS_OPERATOR // staff Miralis: lavora solo sui progetti assegnati, nessuna operazione distruttiva/impostazioni globali
+  CLIENT // referente dell'azienda espositrice, vede solo i progetti della propria organizzazione
 }
 
 model User {
@@ -37,13 +49,43 @@ model User {
   email        String   @unique
   passwordHash String
   name         String
-  role         UserRole @default(ADMIN)
+  role         UserRole @default(CLIENT)
+  lingua       String   @default("it")
   createdAt    DateTime @default(now())
 
-  praticheCreate    Pratica[]        @relation("PraticaCreatedBy")
+  praticheCreate    Pratica[]            @relation("PraticaCreatedBy")
   documentiCaricati Documento[]
   decisioniPrese    Decisione[]
   auditLogs         AuditLog[]
+  teamMemberships   PraticaTeamMember[]
+  supplierImportBatches SupplierImportBatch[]
+  suppliersCreated  Supplier[]           @relation("SupplierCreatedBy")
+  fornitoriRivelati Fornitore[]          @relation("FornitoreRevealedBy")
+  baselineApprovate SavingsBaseline[]    @relation("BaselineApprovedBy")
+  baselineCreate    SavingsBaseline[]    @relation("BaselineCreatedBy")
+
+  @@index([companyId, role])
+}
+
+// Assegnazione di un utente (staff Miralis o referente cliente) a un progetto.
+// Un MIRALIS_OPERATOR vede/lavora solo sui progetti dove ha una riga qui.
+enum ProjectMemberRole {
+  MIRALIS_LEAD
+  MIRALIS_OPERATOR
+  CLIENT_CONTACT
+}
+
+model PraticaTeamMember {
+  id        String            @id @default(cuid())
+  praticaId String
+  pratica   Pratica           @relation(fields: [praticaId], references: [id])
+  userId    String
+  user      User              @relation(fields: [userId], references: [id])
+  role      ProjectMemberRole
+  createdAt DateTime          @default(now())
+
+  @@unique([praticaId, userId])
+  @@index([userId])
 }
 
 // ---------- Pratica (fiera) ----------
@@ -70,11 +112,46 @@ enum StrategiaFornitori {
   MULTI_FORNITORE // l'utente gestisce più fornitori per categoria/attività
 }
 
+// Fase spec-aligned del progetto (Sezione 11 del brief Miralis): più granulare dello
+// storico PraticaStatus, che resta invariato per non rompere le pagine/route esistenti.
+// "phase" è il campo su cui si innestano le funzionalità nuove (roadmap, document room).
+enum ProjectPhase {
+  DRAFT
+  INTAKE
+  BRIEF_REVIEW
+  SUPPLIER_SOURCING
+  RFQ_PREPARATION
+  RFQ_ACTIVE
+  QUOTE_COLLECTION
+  QUOTE_COMPARISON
+  NEGOTIATION
+  SUPPLIER_SELECTION
+  EXECUTION
+  BUILD_UP
+  LIVE_EVENT
+  DISMANTLING
+  COMPLETED
+  ARCHIVED
+}
+
 model Pratica {
   id        String        @id @default(cuid())
   companyId String
   company   Company       @relation(fields: [companyId], references: [id])
   status    PraticaStatus @default(QUALIFICAZIONE)
+  phase     ProjectPhase  @default(DRAFT)
+  isDemo    Boolean       @default(false)
+  lingua    String        @default("it")
+  codiceProgetto String?  @unique // es. MIR-2027-0024, usato per identificare i thread email
+
+  // fee/baseline di default per il progetto (sez. 3 del brief): percentuale e cap
+  // modificabili per progetto, MAI applicati automaticamente al budget dichiarato.
+  feePercentualeConcordata Decimal  @default(30) @db.Decimal(5, 2)
+  feeCapImporto            Decimal? @db.Decimal(12, 2)
+
+  duplicatedFromId String?
+  duplicatedFrom   Pratica?  @relation("PraticaDuplicata", fields: [duplicatedFromId], references: [id])
+  duplicati        Pratica[] @relation("PraticaDuplicata")
 
   nome                     String
   fieraNome                String
@@ -122,8 +199,11 @@ model Pratica {
   rischi             Rischio[]
   auditLogs          AuditLog[]
   noteManuali        NotaManuale[]
+  teamMembers        PraticaTeamMember[]
+  savingsBaselines   SavingsBaseline[]
 
   @@index([companyId, status])
+  @@index([phase])
 }
 
 // ---------- Documenti ----------
@@ -212,19 +292,208 @@ model CapitolatoVersion {
   @@unique([praticaId, versionNumber])
 }
 
-// ---------- Fornitori ----------
+// ---------- Database fornitori proprietario Miralis (globale, non scoped per cliente) ----------
+// Asset proprietario Miralis (Sezione 6/8 del brief): MAI esposto integralmente al cliente.
+// L'accesso a questo modello è filtrato lato server solo per ruoli MIRALIS_ADMIN/MIRALIS_OPERATOR
+// (vedi src/lib/authz.ts) — nessuna route cliente deve mai interrogare `prisma.supplier` direttamente.
+
+enum SupplierSourceType {
+  MIRALIS_DATABASE // importato dal database proprietario Miralis (~200 allestitori)
+  CLIENT_PROVIDED // indicato direttamente dal cliente: visibile da subito
+  MANUALLY_ADDED // aggiunto manualmente dallo staff Miralis
+  EXTERNAL_RESEARCH // trovato con ricerca web (Serper) per un progetto specifico
+  INBOUND_SUPPLIER // fornitore che si è proposto spontaneamente
+}
+
+enum SupplierCategory {
+  GENERAL_CONTRACTOR
+  STAND_BUILDER
+  DESIGN
+  GRAPHICS
+  LIGHTING
+  ELECTRICAL
+  AV
+  FURNITURE
+  LOGISTICS
+  CATERING
+  INTERNET
+  RIGGING
+  CLEANING
+  SAFETY
+  WASTE_DISPOSAL
+}
+
+enum SupplierVerificationStatus {
+  NON_VERIFICATO
+  VERIFICATO
+  SEGNALATO // rating negativo/problemi -> richiede attenzione prima di riusarlo
+}
+
+enum SupplierContactability {
+  SCONOSCIUTA
+  CONTATTABILE
+  BOUNCING
+  OPT_OUT
+  BLACKLIST
+}
+
+model Supplier {
+  id                 String                     @id @default(cuid())
+  publicId           String                     @unique @default(cuid()) // id non enumerabile per URL/signed link
+  ragioneSociale      String
+  nomeCommerciale     String?
+  paese               String                     @default("IT")
+  regione             String?
+  citta               String?
+  provincia           String?
+  indirizzo           String?
+  sito                String?
+  dominioNormalizzato String?
+  emailGenerale       String?
+  emailNormalizzata   String?
+  telefono            String?
+  lingue              String[]
+  categorie           SupplierCategory[]
+  fiereConosciute     String[]
+  venueConosciute     String[]
+  areeServite         String[]
+  dimensioniStandGestibili String?
+  servizi             String[]
+  certificazioni      String[]
+  fasciaPrezzo        String?
+  rating              Float?
+  puntualita          Float?
+  qualita             Float?
+  capacitaRisposta    Float?
+  progettiPrecedenti  String?
+  noteInterne         String? // MAI esposte al cliente
+
+  sourceType          SupplierSourceType         @default(MANUALLY_ADDED)
+  isProprietary       Boolean                    @default(false) // true per tutto ciò che entra da MIRALIS_DATABASE
+  verificationStatus  SupplierVerificationStatus @default(NON_VERIFICATO)
+  contactability      SupplierContactability     @default(SCONOSCIUTA)
+
+  importBatchId       String?
+  importBatch         SupplierImportBatch?       @relation(fields: [importBatchId], references: [id])
+  createdByUserId     String?
+  createdBy           User?                      @relation("SupplierCreatedBy", fields: [createdByUserId], references: [id])
+
+  ultimaInterazioneAt DateTime?
+  deletedAt           DateTime? // soft delete: mai cancellazione fisica di un asset proprietario
+
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  contatti            SupplierContact[]
+  progetti            Fornitore[]
+  suppressioni        SupplierSuppression[]
+
+  @@index([dominioNormalizzato])
+  @@index([emailNormalizzata])
+  @@index([sourceType, isProprietary])
+  @@index([ragioneSociale])
+}
+
+model SupplierContact {
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  nome       String?
+  ruolo      String?
+  email      String?
+  telefono   String?
+  lingua     String?
+  createdAt  DateTime @default(now())
+
+  @@index([supplierId])
+}
+
+enum ImportBatchStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Un batch = un'importazione file (Sezione 7): report immutabile per audit.
+model SupplierImportBatch {
+  id               String             @id @default(cuid())
+  fileName         String
+  fileFormat       String // csv | xlsx | xls | tsv
+  columnMapping    Json // mapping colonne sorgente -> campi target confermato dall'operatore
+  totalRows        Int                @default(0)
+  imported         Int                @default(0)
+  updated          Int                @default(0)
+  duplicates       Int                @default(0)
+  discarded        Int                @default(0)
+  missingEmail     Int                @default(0)
+  invalidEmail     Int                @default(0)
+  needsReview      Int                @default(0)
+  status           ImportBatchStatus  @default(PROCESSING)
+  reportJson       Json?
+  importedByUserId String
+  importedBy       User               @relation(fields: [importedByUserId], references: [id])
+  createdAt        DateTime           @default(now())
+
+  suppliers        Supplier[]
+}
+
+enum SuppressionReason {
+  OPT_OUT
+  BOUNCE
+  BLACKLIST
+  MANUALE
+}
+
+// Suppression list globale (Sezione 16): un fornitore soppresso non riceve più invii,
+// indipendentemente dal progetto (a meno che la soppressione sia scoped a un solo progetto).
+model SupplierSuppression {
+  id              String            @id @default(cuid())
+  supplierId      String
+  supplier        Supplier          @relation(fields: [supplierId], references: [id])
+  reason          SuppressionReason
+  note            String?
+  praticaId       String? // valorizzato solo se la soppressione riguarda un singolo progetto (es. rifiuto per quella gara)
+  createdByUserId String?
+  createdAt       DateTime          @default(now())
+
+  @@index([supplierId])
+}
+
+// ---------- Fornitori nel progetto (project_suppliers): associazione + stato + visibilità cliente ----------
 
 enum FornitoreStato {
   CANDIDATO
   SHORTLIST
   SCARTATO
   RFQ_INVIATA
+  // stati granulari allineati alla Sezione 9 del brief Miralis, usati dalle funzionalità nuove
+  APPROVED_FOR_CONTACT
+  CONTACTED
+  AWAITING_REPLY
+  AUTOMATIC_REPLY
+  BOUNCED
+  REPLIED
+  CLARIFICATION
+  QUOTE_RECEIVED
+  FINALIST
+  NEGOTIATING
+  REJECTED
+  SELECTED
+  OPTED_OUT
+  NO_RESPONSE
 }
 
 enum FornitoreFonte {
   RICERCA_SERPER
   MANUALE
   STORICO_CLIENTE
+}
+
+// Visibilità del fornitore per il cliente (Sezione 6): HIDDEN finché non arriva una risposta
+// umana valida (o approvazione Miralis), REVEALED da quel momento. Applicata SEMPRE server-side.
+enum ClientVisibility {
+  HIDDEN
+  REVEALED
 }
 
 model Fornitore {
@@ -248,11 +517,31 @@ model Fornitore {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  // --- collegamento al database proprietario e protezione identità (Sezione 6) ---
+  supplierId               String?
+  supplier                 Supplier?          @relation(fields: [supplierId], references: [id])
+  sourceType                SupplierSourceType @default(MANUALLY_ADDED)
+  isProprietary             Boolean            @default(false)
+  clientVisibility          ClientVisibility   @default(REVEALED) // HIDDEN impostato alla creazione se sourceType = MIRALIS_DATABASE
+  compatibilityScore        Float?
+  motivoSelezione           String?
+  contactedAt               DateTime?
+  lastContactAt             DateTime?
+  firstValidReplyAt         DateTime?
+  replyConfidence           Float?
+  requiresVisibilityReview  Boolean            @default(false)
+  revealedAt                DateTime?
+  revealedByUserId          String?
+  revealedBy                User?              @relation("FornitoreRevealedBy", fields: [revealedByUserId], references: [id])
+  revealReason               String?
+
   rfqInvii     RFQInvio[]
   emailThreads EmailThread[]
   offerte      Offerta[]
 
   @@index([praticaId, stato])
+  @@index([praticaId, clientVisibility])
+  @@index([supplierId])
 }
 
 model FornitoreRicercaLog {
@@ -451,6 +740,49 @@ model FieldSource {
   @@index([offertaId, fieldName])
 }
 
+// ---------- Baseline del risparmio (Sezione 3) ----------
+// La baseline NON è mai il budget del cliente: deve provenire da un preventivo/fonte
+// documentata, essere approvata e bloccata. Versionata: una modifica successiva crea
+// una nuova versione con motivazione, la precedente passa a SUPERSEDED (mai cancellata).
+
+enum BaselineType {
+  PREVENTIVO_INCUMBENT
+  PREVENTIVO_PRECEDENTE_COMPARABILE
+  PRIMA_MIGLIORE_OFFERTA_COMPARABILE
+  CONCORDATA_MANUALMENTE
+}
+
+enum BaselineStatus {
+  DRAFT
+  APPROVED
+  LOCKED
+  SUPERSEDED
+}
+
+model SavingsBaseline {
+  id                String         @id @default(cuid())
+  praticaId         String
+  pratica           Pratica        @relation(fields: [praticaId], references: [id])
+  versionNumber     Int
+  type              BaselineType
+  amount            Decimal        @db.Decimal(12, 2)
+  currency          String         @default("EUR")
+  documentoId       String? // fonte: documento
+  offertaId         String? // fonte: preventivo/offerta
+  note              String?
+  status            BaselineStatus @default(DRAFT)
+  supersedeReason   String? // obbligatorio quando si crea una nuova versione che sostituisce questa
+  approvedByUserId  String?
+  approvedBy        User?          @relation("BaselineApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt        DateTime?
+  createdByUserId   String
+  createdBy         User           @relation("BaselineCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt         DateTime       @default(now())
+
+  @@unique([praticaId, versionNumber])
+  @@index([praticaId, status])
+}
+
 // ---------- Decisione ----------
 
 model Decisione {
@@ -568,6 +900,11 @@ model NotaManuale {
 
 // ---------- Log / audit ----------
 
+enum AuditAudience {
+  INTERNAL // visibile solo a staff Miralis
+  CLIENT_SAFE // visibile anche al cliente: NON deve mai contenere nomi/dettagli di fornitori nascosti
+}
+
 model AuditLog {
   id         String   @id @default(cuid())
   praticaId  String
@@ -577,10 +914,12 @@ model AuditLog {
   actorUser  User?    @relation(fields: [actorUserId], references: [id])
   tipo       String
   descrizione String
+  audience   AuditAudience @default(INTERNAL)
   metadata   Json?
   createdAt  DateTime @default(now())
 
   @@index([praticaId, createdAt])
+  @@index([praticaId, audience, createdAt])
 }
 
 // ---------- Integrazioni ----------

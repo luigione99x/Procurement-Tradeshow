@@ -9,7 +9,7 @@ export const maxDuration = 90;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const [tasks, rischi] = await Promise.all([
       prisma.pianoAttivita.findMany({ where: { praticaId: params.id }, orderBy: { scadenza: "asc" } }),
       prisma.rischio.findMany({ where: { praticaId: params.id }, orderBy: { createdAt: "desc" } }),
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
 
     const decisione = await prisma.decisione.findUnique({
       where: { praticaId: params.id },

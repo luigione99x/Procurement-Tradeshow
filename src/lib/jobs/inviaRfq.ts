@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { sendMail } from "@/lib/gmail";
+import { assertCanSendReal } from "@/lib/emailMode";
 import { logAttivita } from "@/lib/audit";
+import { audienceForFornitore } from "@/lib/supplierVisibility";
 
 async function fetchAllegato(documentoId: string) {
   const doc = await prisma.documento.findUnique({ where: { id: documentoId } });
@@ -20,6 +22,9 @@ export async function eseguiInvioRFQ(campaignId: string) {
   for (const invio of campaign.invii) {
     if (invio.status === "INVIATO") continue; // già inviato: evita duplicati dopo un riavvio
     try {
+      // Sezione 15/16: mai un invio reale per errore da sandbox/dev.
+      assertCanSendReal(invio.toEmail);
+
       await prisma.rFQInvio.update({ where: { id: invio.id }, data: { status: "INVIO_IN_CORSO" } });
 
       const attachments = [];
@@ -75,6 +80,7 @@ export async function eseguiInvioRFQ(campaignId: string) {
         actorType: "sistema",
         tipo: "rfq_inviata",
         descrizione: `RFQ inviata a ${invio.fornitore.nome} (${invio.toEmail})`,
+        audience: audienceForFornitore(invio.fornitore),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Errore sconosciuto";
@@ -87,6 +93,7 @@ export async function eseguiInvioRFQ(campaignId: string) {
         actorType: "sistema",
         tipo: "rfq_invio_fallito",
         descrizione: `Invio RFQ a ${invio.fornitore.nome} fallito: ${message}`,
+        audience: audienceForFornitore(invio.fornitore),
       });
     }
   }

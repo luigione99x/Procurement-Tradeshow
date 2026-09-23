@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
+import { redactNestedFornitore } from "@/lib/supplierVisibility";
 import OffertePanel from "@/components/OffertePanel";
 
 export default async function OffertePage({ params }: { params: { id: string } }) {
+  const user = await requireUser();
   const [offerte, decisione] = await Promise.all([
     prisma.offerta.findMany({
       where: { praticaId: params.id, stato: { not: "SCARTATA" } },
@@ -11,8 +14,11 @@ export default async function OffertePage({ params }: { params: { id: string } }
     prisma.decisione.findUnique({ where: { praticaId: params.id }, include: { offertaScelta: { include: { fornitore: true } } } }),
   ]);
 
+  // Protezione Sezione 6: un'offerta di un fornitore proprietario non ancora
+  // rivelato non deve esporre al cliente il nome/contatti nel payload della pagina.
   const serializzate = offerte.map((o) => ({
     ...o,
+    fornitore: redactNestedFornitore(o.fornitore, user!),
     prezzo: o.prezzo?.toString() ?? null,
   }));
 

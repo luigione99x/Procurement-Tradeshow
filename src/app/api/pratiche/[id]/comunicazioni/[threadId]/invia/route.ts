@@ -3,14 +3,16 @@ import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
 import { requireGmail } from "@/lib/integrations";
 import { sendMail } from "@/lib/gmail";
+import { assertCanSendReal } from "@/lib/emailMode";
 import { logAttivita } from "@/lib/audit";
+import { audienceForFornitore } from "@/lib/supplierVisibility";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string; threadId: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     requireGmail();
 
     const { subject, body } = (await req.json()) as { subject: string; body: string };
@@ -23,6 +25,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
     const ultimoInbound = thread.messages.find((m) => m.direction === "INBOUND");
     const toEmail = thread.fornitore?.email || ultimoInbound?.fromAddress;
     if (!toEmail) throw new ApiError(400, "Indirizzo destinatario non disponibile per questo thread");
+
+    assertCanSendReal(toEmail);
 
     const { id: gmailMessageId, threadId: gmailThreadId } = await sendMail({
       to: toEmail,
@@ -52,6 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
       actorUserId: user.id,
       tipo: "email_inviata",
       descrizione: `Email inviata a ${thread.fornitore?.nome || toEmail}: "${subject}"`,
+      audience: thread.fornitore ? audienceForFornitore(thread.fornitore) : "INTERNAL",
     });
 
     return NextResponse.json({ ok: true, gmailMessageId, gmailThreadId });

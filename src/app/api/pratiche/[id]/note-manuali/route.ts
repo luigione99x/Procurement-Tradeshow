@@ -6,7 +6,7 @@ import { logAttivita } from "@/lib/audit";
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const note = await prisma.notaManuale.findMany({ where: { praticaId: params.id }, orderBy: { data: "desc" } });
     return NextResponse.json({ note });
   } catch (err) {
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const body = await req.json();
 
     const nota = await prisma.notaManuale.create({

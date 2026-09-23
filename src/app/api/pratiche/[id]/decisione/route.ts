@@ -7,7 +7,7 @@ import { logAttivita } from "@/lib/audit";
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const decisione = await prisma.decisione.findUnique({
       where: { praticaId: params.id },
       include: { offertaScelta: { include: { fornitore: true } } },
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const body = await req.json() as {
       offertaSceltaId: string;
       contrattoDocumentoId?: string;

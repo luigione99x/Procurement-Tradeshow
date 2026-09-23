@@ -10,7 +10,7 @@ export const maxDuration = 120;
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    await getPraticaScoped(params.id, user.companyId);
+    await getPraticaScoped(params.id, user);
     const campagne = await prisma.rFQCampaign.findMany({
       where: { praticaId: params.id },
       orderBy: { createdAt: "desc" },
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await authOrThrow();
-    const pratica = await getPraticaScoped(params.id, user.companyId);
+    const pratica = await getPraticaScoped(params.id, user);
     requireOpenAI();
 
     const { fornitoreIds } = (await req.json()) as { fornitoreIds: string[] };

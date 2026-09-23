@@ -24,7 +24,7 @@ export default async function PraticaLayout({
   if (!user) redirect("/login");
   let pratica;
   try {
-    pratica = await getPraticaScoped(params.id, user.companyId);
+    pratica = await getPraticaScoped(params.id, user);
   } catch {
     redirect("/dashboard");
   }

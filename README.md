@@ -1,8 +1,37 @@
-# Procurement Fiere
+# Miralis (già "Procurement Fiere")
 
-Prodotto cloud per gestire l'acquisto e la realizzazione di stand fieristici: qualificazione AI, ricerca reale di allestitori, invio/ricezione RFQ da una casella Gmail dedicata, confronto offerte e piano di esecuzione con monitoraggio scadenze.
+Piattaforma e servizio operativo Miralis: aiuta aziende espositrici a trovare, confrontare, negoziare e
+coordinare i fornitori per una fiera B2B, dalla qualificazione del brief fino a montaggio e disallestimento.
+Miralis è un'**agenzia** — un solo staff interno (Miralis Admin/Operator) gestisce i progetti di più clienti,
+possiede un database fornitori proprietario protetto server-side, e una casella Gmail dedicata condivisa.
 
 Non è una demo: backend e database sono reali (Neon Postgres), le integrazioni (OpenAI, Serper, Gmail) effettuano chiamate reali quando configurate, e i job in background girano lato server indipendentemente dal browser.
+
+Vedi **`IMPLEMENTATION_STATUS.md`** per lo stato dettagliato e aggiornato di ogni funzionalità.
+
+## Ruoli
+
+- **Miralis Admin** — vede tutti i clienti/progetti, gestisce il database fornitori proprietario, importa
+  aziende, approva rivelazioni, gestisce fee/baseline e utenti.
+- **Miralis Operator** — lavora solo sui progetti a cui è assegnato, vede i fornitori usati internamente,
+  nessuna operazione distruttiva o impostazione globale.
+- **Cliente** — vede solo i progetti della propria organizzazione, solo i fornitori la cui identità è stata
+  autorizzata (rivelata dopo una risposta umana reale), numeri aggregati per il resto.
+
+Il form pubblico `/signup` crea **sempre** un tenant Cliente: lo staff Miralis si crea solo con
+`npm run db:seed` (variabili `MIRALIS_ADMIN_EMAIL/NAME/PASSWORD` in `.env`).
+
+## Database fornitori proprietario e protezione dell'identità
+
+Il database Miralis (~200 allestitori italiani importati da file, più quelli aggiunti nel tempo) è un asset
+proprietario: un cliente non vede mai ragione sociale, sito, email o telefono di un fornitore prima che
+arrivi una **risposta umana reale** (non conta bounce, fuori sede, risposta automatica). La protezione è
+applicata **server-side**, non in UI — vedi `src/lib/supplierVisibility.ts`, l'unico punto autorizzato a
+decidere cosa è "client-safe" (query, risposte API, pagine renderizzate lato server, audit log).
+
+Importer: `/dashboard/fornitori/import` (solo Miralis Admin) — CSV/XLSX/XLS/TSV, rilevamento e mapping
+colonne, preview, deduplicazione contro l'archivio esistente, conferma esplicita, report finale. Directory
+interna di consultazione: `/dashboard/fornitori`.
 
 ## Stack
 
@@ -35,11 +64,17 @@ Nessuna funzione produce dati finti quando l'integrazione non è configurata: le
 npm install
 cp .env.example .env.local   # poi compila i valori
 npx prisma generate
-npx prisma db push           # applica lo schema al tuo Postgres (Neon consigliato)
+npx prisma migrate deploy    # applica le migrazioni versionate al tuo Postgres (Neon consigliato)
+npm run db:seed              # crea lo staff Miralis (e un progetto demo) — vedi variabili MIRALIS_ADMIN_*
 npm run dev
 ```
 
-Apri http://localhost:3000, registra il primo utente da `/signup` (crea automaticamente l'azienda/tenant).
+Apri http://localhost:3000: accedi come staff Miralis con le credenziali seedate, oppure registra un nuovo
+cliente da `/signup` (crea automaticamente un tenant cliente separato).
+
+> Il prototipo usava `prisma db push` (nessuna cronologia di migrazioni). Da questa versione lo schema è
+> versionato in `prisma/migrations/`: usare sempre `prisma migrate dev` (sviluppo) o `prisma migrate deploy`
+> (produzione/CI) per applicare modifiche, mai più `db push` su un database con dati reali.
 
 ## Variabili d'ambiente
 
@@ -64,6 +99,15 @@ Vedi `.env.example` per l'elenco completo. Riepilogo:
 5. Scambia il codice per ottenere il **refresh token**.
 6. Imposta `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_ADDRESS` nelle variabili d'ambiente.
 7. Da `/dashboard/impostazioni` clicca "Verifica connessione" su Gmail: se va a buon fine vedrai l'indirizzo collegato.
+
+### Modalità email (`EMAIL_MODE`)
+
+Ogni invio reale passa da `src/lib/emailMode.ts` prima di toccare Gmail:
+
+- `sandbox` (default, anche se `EMAIL_MODE` non è impostata) — blocca ogni invio verso indirizzi non in
+  `EMAIL_TEST_ALLOWLIST` (lista separata da virgole).
+- `live` — invii reali senza restrizioni.
+- `draft_only` — **non ancora implementato**: blocca con un errore esplicito invece di inviare per errore.
 
 ### Collaudo prima dell'uso reale
 

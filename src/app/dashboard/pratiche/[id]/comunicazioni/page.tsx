@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
+import { isMiralisStaff } from "@/lib/authz";
+import { redactNestedFornitore } from "@/lib/supplierVisibility";
 import RFQBozzaReview from "@/components/RFQBozzaReview";
 import ThreadsPanel from "@/components/ThreadsPanel";
 
 export default async function ComunicazioniPage({ params }: { params: { id: string } }) {
-  const [campaigns, threads] = await Promise.all([
+  const user = await requireUser();
+  const [campaignsRaw, threadsRaw] = await Promise.all([
     prisma.rFQCampaign.findMany({
       where: { praticaId: params.id },
       orderBy: { createdAt: "desc" },
@@ -15,6 +19,25 @@ export default async function ComunicazioniPage({ params }: { params: { id: stri
       include: { fornitore: true, messages: { orderBy: { createdAt: "desc" }, take: 1 } },
     }),
   ]);
+
+  // Sezione 6: contenuto/identita' di email e RFQ legate a un fornitore ancora
+  // nascosto non devono raggiungere il cliente. Questa scheda operativa (bozze
+  // RFQ, thread grezzi) resta comunque riservata allo staff Miralis nell'MVP:
+  // il cliente segue lo stato tramite la scheda Fornitori (vista aggregata).
+  if (!isMiralisStaff(user!)) {
+    return (
+      <div className="card text-sm text-slate-500">
+        Le comunicazioni con i fornitori sono gestite dal team Miralis. Segui l&apos;avanzamento nella scheda{" "}
+        <span className="font-medium">Fornitori</span>: numero di contatti, risposte e preventivi ricevuti.
+      </div>
+    );
+  }
+
+  const campaigns = campaignsRaw.map((c) => ({
+    ...c,
+    invii: c.invii.map((i) => ({ ...i, fornitore: redactNestedFornitore(i.fornitore, user!) })),
+  }));
+  const threads = threadsRaw.map((t) => ({ ...t, fornitore: redactNestedFornitore(t.fornitore, user!) }));
 
   return (
     <div className="space-y-8">
