@@ -104,11 +104,59 @@ di Sezione 19.
   `BOUNCED`, `AUTOMATIC_REPLY`, ...). **Non ancora testato contro Gmail reale** (nessuna casella
   configurata in questa sessione) — verificato solo a livello di unit test sulla logica di decisione.
 
-## Fasi 4, 6-11 — non iniziate
+## Fase 4 (parziale) — Pipeline utilizzabile senza alcuna chiave AI (completata per qualificazione → capitolato → RFQ)
 
-Shortlist con punteggio di compatibilità, generazione RFQ con template IT/EN, negoziazione a round con
-approvazione, Document Room con estrazione fatti, Project Assistant, provider AI duale OpenAI+Anthropic,
-i18n IT/EN, duplicazione progetto, report finale.
+L'utente non ha (e non prevede di ottenere a breve) una chiave OpenAI o Anthropic: senza questo lavoro
+l'intera pipeline centrale (qualificazione → capitolato → RFQ) era bloccata al primo passo. Obiettivo di
+questa fase: rendere **utilizzabile a costo zero, senza alcuna chiave AI**, l'intero percorso dal collegare
+un fornitore del database proprietario a un progetto fino all'invio della RFQ, mantenendo la generazione AI
+come percorso preferito (prosa più naturale, capacità di dedurre requisiti impliciti) quando le chiavi sono
+disponibili.
+
+- **Collegamento database proprietario → progetto (il pezzo mancante critico)**: le 201 aziende importate in
+  `Supplier` non avevano *nessun* modo di essere associate a un progetto reale — l'import era funzionalmente
+  inutile indipendentemente dalle chiavi AI. Nuova route `POST /api/pratiche/[id]/fornitori/da-database`
+  (solo staff Miralis, mai cliente): cerca nel database proprietario e crea righe `Fornitore` con
+  `sourceType=MIRALIS_DATABASE`, `isProprietary=true`, `clientVisibility=HIDDEN` **hardcoded lato server**
+  (mai accettato dal body della richiesta). Nuovo componente `AggiungiDaDatabaseModal.tsx` (ricerca +
+  selezione multipla) integrato in `FornitoriPanel.tsx` con un pulsante dedicato "Aggiungi dal database
+  Miralis", oltre a badge di stato/visibilità più granulari (fonte database vs manuale vs ricerca web,
+  rivelato/nascosto al cliente).
+- **Generazione RFQ senza AI**: `src/lib/rfqTemplate.ts`, generatore deterministico bilingue (IT/EN) del
+  testo RFQ (Sezione 13: fiera, sede, date, stand, requisiti obbligatori/desiderabili, servizi da includere
+  vs quotare separatamente, vincoli, formato di risposta richiesto, scadenza, contatto, avviso esplicito "non
+  specificato = non incluso nel prezzo"). `POST /api/pratiche/[id]/rfq` usa `openaiStatus().configured` per
+  scegliere tra `generaTestoRFQ` (AI, prosa naturale) e `generaTestoRFQTemplate` (deterministico) — il
+  contenuto sostanziale (i campi) è identico nei due casi.
+- **Generazione capitolato senza AI**: `src/lib/capitolatoTemplate.ts`, riorganizza deterministicamente le
+  risposte già fornite in qualificazione (tipo di stand + elementi principali → requisiti obbligatori,
+  grafica → requisiti desiderabili, servizi noti → servizi da includere, vincoli noti → vincoli fiera) senza
+  dedurre o inventare nulla di implicito — a differenza della versione AI, non tenta di interpretare testo
+  libero oltre a spezzarlo in righe. `POST /api/pratiche/[id]/capitolato` applica lo stesso pattern
+  `openaiStatus().configured` di scelta tra `generaCapitolato` (AI) e `generaCapitolatoTemplate`
+  (deterministico).
+- **Qualificazione senza AI**: la chat di qualificazione (`QualificazioneChat.tsx`) restava l'unico vero
+  blocco iniziale, perché l'unica via per popolare `estrazione` era la conversazione AI
+  (`eseguiTurnoQualificazione`). Il sotto-flusso di revisione/modifica/conferma (`azione: "modifica"` /
+  `"conferma"` sulla route `qualificazione`) **non dipendeva già da alcuna AI**. Aggiunta la funzione
+  `compilaManualmente()` che salta la chat e apre direttamente un modulo con i 7 campi chiave del brief
+  (tipo di stand, obiettivi, elementi principali, grafica, servizi noti, vincoli, note), riusando le stesse
+  route non-AI già esistenti; collegata a un link "Preferisci compilare un modulo invece della chat?
+  (funziona anche senza AI)" sotto il campo di input della chat.
+- **Non estesi in questa fase** (bisogno di NLP aperto, nessun fallback deterministico sensato individuato):
+  contesto `ASSISTENTE` della chat (Q&A libero sul progetto, `rispondiChatAssistente`), classificazione email
+  in arrivo (`classificaEmail`) ed estrazione offerte da PDF/testo libero (`estraiOfferta`) — questi restano
+  **funzionalità che richiedono una chiave AI configurata** e vanno documentate come tali nell'onboarding,
+  non finte con un fallback che degraderebbe silenziosamente la qualità (es. rivelare un fornitore per
+  errore per una classificazione email sbagliata).
+- **Test aggiunti**: `src/lib/rfqTemplate.test.ts` (3 test) e `src/lib/capitolatoTemplate.test.ts` (2 test) —
+  entrambe funzioni pure, nessun DB richiesto. Totale ora 32 test, tutti verdi.
+
+## Fasi 6-11 — non iniziate
+
+Shortlist con punteggio di compatibilità, negoziazione a round con approvazione, Document Room con
+estrazione fatti, Project Assistant, provider AI duale OpenAI+Anthropic, i18n IT/EN, duplicazione progetto,
+report finale.
 
 ## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
@@ -125,7 +173,7 @@ viene creato una sola volta, controllo per nome).
 
 ## Test automatici (Sezione 36) — avviati
 
-Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 27 test, tutti verdi, concentrati
+Aggiunto **Vitest** (`npm run test`, `vitest.config.ts` con alias `@/*`). 32 test, tutti verdi, concentrati
 sulle funzioni pure che non richiedono un DB (eseguibili anche in questo ambiente sandbox senza accesso
 diretto a Postgres):
 
@@ -136,6 +184,12 @@ diretto a Postgres):
   confidenza alta; `audienceForFornitore` non è mai `CLIENT_SAFE` per un fornitore nascosto.
 - `src/lib/supplierImport.test.ts` — normalizzazione dominio/email/ragione sociale, parsing CSV/TSV RFC4180
   (campi quotati, virgole/virgolette interne), rilevamento colonne, validazione riga per riga.
+- `src/lib/rfqTemplate.test.ts` — oggetto/corpo RFQ generati senza AI includono i campi chiave del
+  capitolato, rispettano la lingua (IT/EN) e la modalità "categoria singola", omettono sezioni per dati
+  assenti invece di inventarli.
+- `src/lib/capitolatoTemplate.test.ts` — le risposte di qualificazione vengono riorganizzate in
+  requisiti/servizi/vincoli senza perdita di informazione; i campi non specificati restano vuoti/segnalati
+  come tali, mai inventati.
 
 **Non ancora coperto** (richiede un DB reale, non eseguibile da questo sandbox): `planImport`/
 `importSuppliers` (dedup contro l'archivio esistente), tenant isolation end-to-end (`scope.ts`), test
@@ -144,9 +198,10 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 
 ## Verificato in questa sessione
 
-- `npx tsc --noEmit` — pulito (rieseguito dopo ogni fase, incluse le modifiche a classificazione/reveal).
+- `npx tsc --noEmit` — pulito (rieseguito dopo ogni fase, incluse le modifiche a classificazione/reveal e i
+  nuovi fallback senza AI).
 - `npm run build` (`prisma generate && next build`) — completa con successo, tutte le route registrate.
-- `npm run test` (Vitest) — 27/27 test verdi.
+- `npm run test` (Vitest) — 32/32 test verdi.
 - `npm run lint` — **non verificabile**: il prototipo originale non aveva ESLint configurato e `next lint`
   richiede una configurazione interattiva al primo avvio, non disponibile in questo ambiente non interattivo.
 - Import reale delle 201 aziende verificato via query dirette su Neon (conteggi, duplicati, revisioni).
@@ -163,11 +218,13 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 
 ## Prossimo passo consigliato
 
-1. Collaudare `pollGmail.ts` con una vera casella Gmail configurata (nessuna in questa sessione): verificare
+1. Collaudare manualmente (browser) il percorso completo senza AI: creare un progetto → compilare
+   qualificazione via modulo manuale → generare capitolato senza AI → aggiungere fornitori dal database
+   Miralis → generare RFQ senza AI → verificare che i testi generati siano corretti e completi.
+2. Collaudare `pollGmail.ts` con una vera casella Gmail configurata (nessuna in questa sessione): verificare
    che bounce/OOO reali vengano classificati correttamente e non rivelino mai un fornitore.
-2. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
-3. Generazione RFQ con template IT/EN e capitolato (Fase 4), poi negoziazione a round (Fase 7) — le due
-   fasi che sbloccano il ciclo completo "shortlist → contatto → confronto → scelta" richiesto dai criteri
-   di accettazione.
-4. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
+3. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
+4. Negoziazione a round con approvazione (Fase 7) — sblocca il resto del ciclo "shortlist → contatto →
+   confronto → scelta" richiesto dai criteri di accettazione.
+5. Collegare `SavingsBaseline` al calcolo fee in `src/lib/fee.ts` (oggi `Decisione` ha ancora i campi
    inline dal prototipo originale, non referenzia la baseline versionata).

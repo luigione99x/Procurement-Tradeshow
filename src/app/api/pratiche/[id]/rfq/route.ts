@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
-import { requireOpenAI } from "@/lib/integrations";
-import { generaTestoRFQ } from "@/lib/openai";
+import { openaiStatus } from "@/lib/integrations";
+import { generaTestoRFQ, type CapitolatoContenuto } from "@/lib/openai";
+import { generaTestoRFQTemplate } from "@/lib/rfqTemplate";
 import { logAttivita } from "@/lib/audit";
 
 export const maxDuration = 120;
@@ -26,7 +27,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const user = await authOrThrow();
     const pratica = await getPraticaScoped(params.id, user);
-    requireOpenAI();
+    // La generazione RFQ funziona anche senza OpenAI configurata (Sezione 13):
+    // usa un template strutturato deterministico come fallback, cosi' l'invio
+    // RFQ resta utilizzabile a costo zero. Con OpenAI configurata la prosa e'
+    // più naturale ma il contenuto sostanziale (campi richiesti) è lo stesso.
+    const aiDisponibile = openaiStatus().configured;
 
     const { fornitoreIds } = (await req.json()) as { fornitoreIds: string[] };
     if (!fornitoreIds?.length) throw new ApiError(400, "Seleziona almeno un fornitore");
@@ -48,12 +53,31 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     for (const f of fornitori) {
-      const { subject, body } = await generaTestoRFQ({
-        capitolatoMarkdown: capitolato.contentMarkdown,
-        fornitoreNome: f.nome,
-        briefPratica: pratica as unknown as Record<string, unknown>,
-        categoria: f.categoria,
-      });
+      const { subject, body } = aiDisponibile
+        ? await generaTestoRFQ({
+            capitolatoMarkdown: capitolato.contentMarkdown,
+            fornitoreNome: f.nome,
+            briefPratica: pratica as unknown as Record<string, unknown>,
+            categoria: f.categoria,
+          })
+        : generaTestoRFQTemplate({
+            lingua: (pratica.lingua as "it" | "en") ?? "it",
+            fornitoreNome: f.nome,
+            categoria: f.categoria,
+            capitolato: capitolato.contentJson as unknown as CapitolatoContenuto,
+            pratica: {
+              codiceProgetto: pratica.codiceProgetto,
+              fieraNome: pratica.fieraNome,
+              citta: pratica.citta,
+              padiglione: pratica.padiglione,
+              dataInizioFiera: pratica.dataInizioFiera,
+              dataFineFiera: pratica.dataFineFiera,
+              dimensioneMq: pratica.dimensioneMq,
+              posizioneStand: pratica.posizioneStand,
+              scadenzaSceltaFornitore: pratica.scadenzaSceltaFornitore,
+              referenteAziendaleNome: pratica.referenteAziendaleNome,
+            },
+          });
       await prisma.rFQInvio.create({
         data: {
           campaignId: campaign.id,

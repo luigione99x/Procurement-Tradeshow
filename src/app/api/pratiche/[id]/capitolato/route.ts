@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError } from "@/lib/scope";
 import { generaCapitolato } from "@/lib/openai";
+import { generaCapitolatoTemplate } from "@/lib/capitolatoTemplate";
+import { openaiStatus } from "@/lib/integrations";
 import { logAttivita } from "@/lib/audit";
 
 export const maxDuration = 60;
@@ -30,11 +32,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .map((d) => `[${d.tipo}] ${d.fileName}${d.extractedText ? ": " + d.extractedText.slice(0, 500) : ""}`)
       .join("\n");
 
-    const { json, markdown } = await generaCapitolato({
-      briefPratica: pratica as unknown as Record<string, unknown>,
-      qualificazione: (pratica.qualificazione as Record<string, unknown>) || {},
-      documentiSommario,
-    });
+    // Come per la RFQ (Sezione 13), il capitolato resta generabile anche senza
+    // OpenAI configurata: senza AI si riorganizzano deterministicamente le
+    // risposte già fornite in qualificazione, senza dedurre nulla di implicito.
+    const { json, markdown } = openaiStatus().configured
+      ? await generaCapitolato({
+          briefPratica: pratica as unknown as Record<string, unknown>,
+          qualificazione: (pratica.qualificazione as Record<string, unknown>) || {},
+          documentiSommario,
+        })
+      : generaCapitolatoTemplate({
+          briefPratica: pratica as unknown as Record<string, unknown>,
+          qualificazione: (pratica.qualificazione as Record<string, string>) || {},
+          documentiSommario,
+        });
 
     const ultima = await prisma.capitolatoVersion.findFirst({
       where: { praticaId: params.id },

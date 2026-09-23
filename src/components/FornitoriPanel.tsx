@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AggiungiDaDatabaseModal from "./AggiungiDaDatabaseModal";
 
 type Fornitore = {
   id: string;
@@ -18,6 +19,8 @@ type Fornitore = {
   sitoAccessibile: boolean | null;
   stato: string;
   fonte: string;
+  sourceType?: string;
+  clientVisibility?: string;
 };
 
 const STATO_LABEL: Record<string, string> = {
@@ -25,6 +28,20 @@ const STATO_LABEL: Record<string, string> = {
   SHORTLIST: "Shortlist",
   SCARTATO: "Scartato",
   RFQ_INVIATA: "RFQ inviata",
+  APPROVED_FOR_CONTACT: "Approvato per contatto",
+  CONTACTED: "Contattato",
+  AWAITING_REPLY: "In attesa di risposta",
+  AUTOMATIC_REPLY: "Risposta automatica",
+  BOUNCED: "Email non consegnata",
+  REPLIED: "Ha risposto",
+  CLARIFICATION: "Chiede chiarimenti",
+  QUOTE_RECEIVED: "Preventivo ricevuto",
+  FINALIST: "Finalista",
+  NEGOTIATING: "In negoziazione",
+  REJECTED: "Non selezionato",
+  SELECTED: "Selezionato",
+  OPTED_OUT: "Ha rinunciato",
+  NO_RESPONSE: "Nessuna risposta",
 };
 
 export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato }: { praticaId: string; initial: Fornitore[]; capitolatoApprovato: boolean }) {
@@ -34,7 +51,13 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
+  const [showDatabase, setShowDatabase] = useState(false);
   const [manual, setManual] = useState({ nome: "", sito: "", email: "", areaOperativa: "", storico: false });
+
+  async function ricaricaFornitori() {
+    const fr = await fetch(`/api/pratiche/${praticaId}/fornitori`);
+    if (fr.ok) setFornitori((await fr.json()).fornitori);
+  }
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -117,6 +140,9 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-semibold">Allestitori ({attivi.length})</h3>
           <div className="flex gap-2">
+            <button className="btn-secondary" onClick={() => setShowDatabase(true)}>
+              Aggiungi dal database Miralis
+            </button>
             <button className="btn-secondary" onClick={() => setShowManual((s) => !s)}>
               + Aggiungi manualmente
             </button>
@@ -170,8 +196,15 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
                 </label>
                 <div className="flex items-center gap-2">
                   {f.categoria && <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-100">{f.categoria}</span>}
-                  <span className="badge bg-slate-100 text-slate-700">{STATO_LABEL[f.stato]}</span>
-                  <span className="badge bg-slate-50 text-slate-500 border border-slate-200">{f.fonte === "RICERCA_SERPER" ? "ricerca" : f.fonte === "STORICO_CLIENTE" ? "storico" : "manuale"}</span>
+                  <span className="badge bg-slate-100 text-slate-700">{STATO_LABEL[f.stato] ?? f.stato}</span>
+                  <span className="badge bg-slate-50 text-slate-500 border border-slate-200">
+                    {f.sourceType === "MIRALIS_DATABASE" ? "database Miralis" : f.fonte === "RICERCA_SERPER" ? "ricerca" : f.fonte === "STORICO_CLIENTE" ? "storico" : "manuale"}
+                  </span>
+                  {f.sourceType === "MIRALIS_DATABASE" && (
+                    <span className={`badge ${f.clientVisibility === "REVEALED" ? "bg-green-50 text-green-700 border border-green-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                      {f.clientVisibility === "REVEALED" ? "rivelato al cliente" : "nascosto al cliente"}
+                    </span>
+                  )}
                   {f.stato !== "RFQ_INVIATA" && (
                     <button className="text-xs text-red-600" onClick={() => scarta(f.id)}>
                       Scarta
@@ -219,6 +252,14 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
             ))}
           </ul>
         </div>
+      )}
+
+      {showDatabase && (
+        <AggiungiDaDatabaseModal
+          praticaId={praticaId}
+          onClose={() => setShowDatabase(false)}
+          onAggiunti={ricaricaFornitori}
+        />
       )}
     </div>
   );

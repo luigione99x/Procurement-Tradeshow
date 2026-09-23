@@ -58,6 +58,28 @@ export default function QualificazioneChat({
     }
   }
 
+  // Percorso senza AI (nessuna chiave OpenAI configurata): salta la conversazione
+  // e apre direttamente il modulo campi, riusando "modifica"/"conferma" che non
+  // dipendono da alcun provider AI. Compilabile a mano come un brief classico.
+  async function compilaManualmente() {
+    const base: CampoEstratto[] = [
+      { chiave: "tipoStand", etichetta: "Tipo di stand desiderato", valore: "" },
+      { chiave: "obiettivi", etichetta: "Obiettivi della partecipazione alla fiera", valore: "" },
+      { chiave: "elementiPrincipali", etichetta: "Elementi principali richiesti (es. sala riunioni, magazzino, cucina)", valore: "" },
+      { chiave: "grafica", etichetta: "Grafica e materiali di brand da utilizzare", valore: "" },
+      { chiave: "servizi", etichetta: "Servizi già noti (elettricità, internet, catering, ...)", valore: "" },
+      { chiave: "vincoli", etichetta: "Vincoli tecnici o del regolamento fiera già noti", valore: "" },
+      { chiave: "note", etichetta: "Altre note utili per i fornitori", valore: "" },
+    ];
+    setEstrazione(base);
+    setStato("PRONTA_PER_REVISIONE");
+    await fetch(`/api/pratiche/${praticaId}/qualificazione`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ azione: "modifica", estrazione: base }),
+    });
+  }
+
   async function riapriChat() {
     await fetch(`/api/pratiche/${praticaId}/qualificazione`, {
       method: "POST",
@@ -194,6 +216,13 @@ export default function QualificazioneChat({
           Invia
         </button>
       </form>
+      <button
+        type="button"
+        className="text-xs text-slate-400 hover:underline mt-2 text-left"
+        onClick={compilaManualmente}
+      >
+        Preferisci compilare un modulo invece della chat? (funziona anche senza AI)
+      </button>
     </div>
   );
 }
