@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { authOrThrow, getPraticaScoped, handleApiError, ApiError } from "@/lib/scope";
 import { requireMiralisStaff } from "@/lib/authz";
-import { calcolaCompatibilita } from "@/lib/compatibilityScore";
+import { costruisciFornitoreDaSupplier } from "@/lib/fornitoreDaSupplier";
 import { logAttivita } from "@/lib/audit";
 
 // Collega fornitori del database proprietario Miralis a un progetto (Sezione 9:
@@ -36,47 +36,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const daCreare = suppliers.filter((s) => !collegatiSet.has(s.id));
 
+    // Punteggio calcolato allo stesso modo mostrato in ricerca (Fase 6),
+    // congelato al momento della selezione: cambiamenti successivi ai dati
+    // del fornitore proprietario non riscrivono retroattivamente le scelte già fatte.
+    const contesto = { categoriaRichiesta: categoria || null, cittaFiera: pratica.citta || null };
     const creati = await prisma.$transaction(
-      daCreare.map((s) => {
-        // Punteggio calcolato allo stesso modo mostrato in ricerca (Fase 6),
-        // congelato al momento della selezione: cambiamenti successivi ai dati
-        // del fornitore proprietario non riscrivono retroattivamente le scelte già fatte.
-        const { punteggio } = calcolaCompatibilita(
-          {
-            categorie: s.categorie,
-            citta: s.citta,
-            provincia: s.provincia,
-            regione: s.regione,
-            areeServite: s.areeServite,
-            rating: s.rating,
-            puntualita: s.puntualita,
-            qualita: s.qualita,
-            capacitaRisposta: s.capacitaRisposta,
-            verificationStatus: s.verificationStatus,
-            contactability: s.contactability,
-          },
-          { categoriaRichiesta: categoria || null, cittaFiera: pratica.citta || null }
-        );
-        return prisma.fornitore.create({
-          data: {
-            praticaId: params.id,
-            supplierId: s.id,
-            nome: s.ragioneSociale,
-            categoria: s.categorie[0] ?? null,
-            sito: s.sito,
-            areaOperativa: [s.citta, s.provincia, s.regione].filter(Boolean).join(", ") || null,
-            email: s.emailGenerale,
-            emailVerificata: false,
-            ragionePertinenza: "Selezionato dal database fornitori Miralis",
-            stato: "CANDIDATO",
-            fonte: "MANUALE",
-            sourceType: "MIRALIS_DATABASE",
-            isProprietary: true,
-            clientVisibility: "HIDDEN",
-            compatibilityScore: punteggio,
-          },
-        });
-      })
+      daCreare.map((s) => prisma.fornitore.create({ data: costruisciFornitoreDaSupplier(s, params.id, contesto) }))
     );
 
     await logAttivita({

@@ -331,6 +331,38 @@ collegamento appena fatto in Fase 3.
   oggi solo i dati di sintesi finale, non uno storico cronologico nel report); nessun export in formati
   diversi da stampa/PDF browser (es. Excel).
 
+## Correzione post-Fase 6 — Outbound di massa verso l'intero database (completata)
+
+L'utente ha segnalato chiaramente che la Fase 6 (punteggio di compatibilità) non era la priorità: l'esigenza
+reale è poter mandare la RFQ a **tutti e 201** gli allestitori del database in un progetto, non filtrarli o
+ordinarli. Il punteggio resta (badge informativo, non filtra/nasconde nessuno), ma non era comunque
+utilizzabile per un invio di massa per due limiti reali scoperti analizzando il codice:
+
+1. **Nessun modo di selezionare 201 fornitori in un'unica azione**: il modal di ricerca aveva un limite fisso
+   di 40 risultati, nessuna paginazione, nessuna selezione multipla — bisognava cercare e spuntare le caselle
+   una per una.
+2. **La generazione bozza RFQ era sincrona**: `POST /api/pratiche/[id]/rfq` girava dentro la richiesta HTTP
+   (timeout 120s). Con AI configurata (una chiamata per fornitore) e 200 fornitori selezionati, la richiesta
+   sarebbe quasi certamente scaduta a metà — esattamente lo scenario che l'utente voleva usare.
+
+- **Nuova route `POST /api/pratiche/[id]/fornitori/da-database/tutti`** (staff Miralis): collega in un colpo
+  solo ogni fornitore del database non ancora collegato a questo progetto (`createMany`, nessuna ricerca
+  richiesta). Nuovo pulsante "Aggiungi TUTTI dal database Miralis" in `FornitoriPanel.tsx`, con conferma
+  nativa prima di eseguire. La ricerca mirata (modal esistente) resta disponibile per chi vuole restringere
+  manualmente la selezione.
+- **Generazione RFQ spostata in background**: stesso pattern già usato per la ricerca fornitori
+  (`BackgroundJobRun` + `waitUntil`). `InvioRFQBar` avvia il job e fa polling ogni 3s fino al completamento,
+  invece di aspettare sincrono. Un fornitore senza email valida viene ora escluso e conteggiato
+  (`senzaEmail`) invece di bloccare l'intera selezione con un errore — comportamento corretto per un invio di
+  massa, dove una riga sporca su 200 non deve fermare le altre 199.
+- Estratta la logica di creazione riga `Fornitore` da `Supplier` in `src/lib/fornitoreDaSupplier.ts`,
+  condivisa tra il collegamento mirato e quello di massa (evita divergenza tra i due percorsi).
+- **Non fatto**: nessun limite/rate-limiting esplicito sull'invio effettivo di 200 email via Gmail
+  (`eseguiInvioRFQ`, già in background da prima) — se l'esecuzione in background venisse interrotta a metà
+  per un limite di piattaforma, gli invii già `INVIATO` non vengono ripetuti (stato tracciato per riga), ma
+  non c'è ancora un meccanismo automatico che riprenda quelli rimasti `PRONTO`/`INVIO_IN_CORSO`: da verificare
+  con un invio reale a un numero di fornitori vicino a 200.
+
 ## Fasi 9-10 — non iniziate
 
 i18n IT/EN, duplicazione progetto.

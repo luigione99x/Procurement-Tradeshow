@@ -53,6 +53,7 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
   const [error, setError] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
   const [showDatabase, setShowDatabase] = useState(false);
+  const [aggiungendoTutti, setAggiungendoTutti] = useState(false);
   const [manual, setManual] = useState({ nome: "", sito: "", email: "", areaOperativa: "", storico: false });
 
   async function ricaricaFornitori() {
@@ -123,6 +124,20 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
     }
   }
 
+  async function aggiungiTuttiDalDatabase() {
+    if (!confirm("Aggiungere TUTTI i fornitori del database Miralis a questo progetto (non ancora collegati)? Potrebbero essere circa 200.")) return;
+    setAggiungendoTutti(true);
+    setError(null);
+    const res = await fetch(`/api/pratiche/${praticaId}/fornitori/da-database/tutti`, { method: "POST" });
+    setAggiungendoTutti(false);
+    if (res.ok) {
+      await ricaricaFornitori();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Errore nell'aggiunta di tutti i fornitori");
+    }
+  }
+
   function toggleSelect(id: string) {
     setSelected((s) => {
       const next = new Set(s);
@@ -139,10 +154,26 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
     <div className="space-y-4">
       <div className="card">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h3 className="font-semibold">Allestitori ({attivi.length})</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold">Allestitori ({attivi.length})</h3>
+            {attivi.length > 0 && (
+              <button
+                className="text-xs text-brand-700 hover:underline"
+                onClick={() => {
+                  const conEmail = attivi.filter((f) => f.email).map((f) => f.id);
+                  setSelected((s) => (s.size === conEmail.length ? new Set() : new Set(conEmail)));
+                }}
+              >
+                {selected.size === attivi.filter((f) => f.email).length && selected.size > 0 ? "Deseleziona tutti" : "Seleziona tutti"}
+              </button>
+            )}
+          </div>
           <div className="flex gap-2">
+            <button className="btn-secondary" onClick={aggiungiTuttiDalDatabase} disabled={aggiungendoTutti}>
+              {aggiungendoTutti ? "Aggiungo..." : "Aggiungi TUTTI dal database Miralis"}
+            </button>
             <button className="btn-secondary" onClick={() => setShowDatabase(true)}>
-              Aggiungi dal database Miralis
+              Aggiungi dal database (cerca)
             </button>
             <button className="btn-secondary" onClick={() => setShowManual((s) => !s)}>
               + Aggiungi manualmente
@@ -279,8 +310,13 @@ export default function FornitoriPanel({ praticaId, initial, capitolatoApprovato
 function InvioRFQBar({ praticaId, selectedIds, onDone }: { praticaId: string; selectedIds: string[]; onDone: () => void }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [inCorso, setInCorso] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // La generazione gira in background (Sezione 13): con centinaia di
+  // fornitori selezionati una chiamata sincrona rischierebbe il timeout.
+  // Qui si avvia il job e si aspetta il completamento con un polling breve,
+  // esattamente come per la ricerca allestitori.
   async function creaBozza() {
     setLoading(true);
     setError(null);
@@ -289,15 +325,32 @@ function InvioRFQBar({ praticaId, selectedIds, onDone }: { praticaId: string; se
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fornitoreIds: selectedIds }),
     });
-    setLoading(false);
-    if (res.ok) {
-      onDone();
-      router.push(`/dashboard/pratiche/${praticaId}/comunicazioni?tab=rfq`);
-      router.refresh();
-    } else {
+    if (!res.ok) {
+      setLoading(false);
       const data = await res.json().catch(() => ({}));
-      setError(data.error || "Errore nella creazione della bozza RFQ");
+      setError(data.error || "Errore nell'avvio della generazione RFQ");
+      return;
     }
+    setInCorso(true);
+    const interval = setInterval(async () => {
+      const jr = await fetch(`/api/pratiche/${praticaId}/rfq`);
+      if (jr.ok) {
+        const data = await jr.json();
+        const ultimo = data.jobs?.[0];
+        if (ultimo && ultimo.status !== "IN_CORSO") {
+          clearInterval(interval);
+          setLoading(false);
+          setInCorso(false);
+          if (ultimo.status === "FALLITO") {
+            setError(ultimo.errorMessage || "Generazione RFQ fallita");
+          } else {
+            onDone();
+            router.push(`/dashboard/pratiche/${praticaId}/comunicazioni?tab=rfq`);
+            router.refresh();
+          }
+        }
+      }
+    }, 3000);
   }
 
   return (
@@ -305,7 +358,7 @@ function InvioRFQBar({ praticaId, selectedIds, onDone }: { praticaId: string; se
       <span className="text-sm">{selectedIds.length} fornitori selezionati</span>
       {error && <span className="text-sm text-red-300">{error}</span>}
       <button className="btn-primary" onClick={creaBozza} disabled={loading}>
-        {loading ? "..." : "Prepara RFQ"}
+        {inCorso ? "Generazione in corso..." : loading ? "..." : "Prepara RFQ"}
       </button>
     </div>
   );
