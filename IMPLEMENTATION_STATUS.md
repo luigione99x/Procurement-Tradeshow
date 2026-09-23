@@ -312,9 +312,28 @@ non è mai contro il budget dichiarato, sempre contro una baseline documentata e
   esiste nello schema e nella route, ma il form non lo espone ancora — oggi la baseline è sempre
   `note`-based, senza un riferimento cliccabile alla fonte).
 
-## Fasi 9-11 — non iniziate
+## Fase 11 — Report finale (completata)
 
-i18n IT/EN, duplicazione progetto, report finale.
+Nessuna pagina di chiusura progetto esisteva prima: solo schede operative pensate per il lavoro in corso
+(Panoramica, Fornitori, Offerte, ...), nessun riepilogo "cosa abbiamo ottenuto" da mostrare al cliente a
+fine percorso — nonostante ora la Decisione porti dati reali (baseline, risparmio, fee) grazie al
+collegamento appena fatto in Fase 3.
+
+- Nuova tab **"Report finale"** (`/dashboard/pratiche/[id]/report`), visibile a staff e cliente. Prima della
+  decisione mostra solo un rimando alla scheda Offerte; dopo, riepiloga fiera, fornitore scelto (redatto
+  server-side con `redactNestedFornitore` se non ancora rivelato — stessa protezione Sezione 6 di tutte le
+  altre schede), baseline vs prezzo finale, risparmio verificabile/non verificabile, fee di accesso e di
+  successo, stato del piano di esecuzione (attività completate/totali, rischi aperti).
+- `StampaReportButton.tsx` + classi `print:hidden` su header/nav/tab bar condivisi: la pagina si stampa
+  pulita (solo il contenuto del report) con la stampa/salvataggio PDF nativa del browser, senza aggiungere
+  una libreria di generazione PDF lato server.
+- **Non fatto**: nessuna timeline sintetica delle tappe chiave (capitolato approvato, RFQ inviate, ecc. —
+  oggi solo i dati di sintesi finale, non uno storico cronologico nel report); nessun export in formati
+  diversi da stampa/PDF browser (es. Excel).
+
+## Fasi 9-10 — non iniziate
+
+i18n IT/EN, duplicazione progetto.
 
 ## Dati demo (Sezione 35) — eseguiti sul Neon reale
 
@@ -399,7 +418,7 @@ che la genera). Prossimo passo naturale una volta disponibile un ambiente con DB
 4. Estendere i test a un ambiente con DB reale (dedup import, tenant isolation end-to-end, route API).
 5. Verificare l'estrazione testo su un PDF reale in produzione (build Vercel già confermata `READY` con la
    nuova dipendenza `pdf-parse`/`@napi-rs/canvas`, manca solo il collaudo con un file vero).
-6. Collaudare il flusso baseline → decisione end-to-end: impostare/approvare/bloccare una baseline nella
-   scheda Brief, poi registrare la decisione finale e verificare che `prezzoInizialeRiferimento` venga
-   effettivamente preso dalla baseline invece che dal form.
-7. i18n IT/EN completo, duplicazione progetto, report finale (Fasi 9-11).
+6. Collaudare il flusso baseline → decisione → report end-to-end: impostare/approvare/bloccare una baseline
+   nella scheda Brief, registrare la decisione finale, verificare che `prezzoInizialeRiferimento` venga preso
+   dalla baseline e che la tab "Report finale" mostri numeri coerenti.
+7. i18n IT/EN completo, duplicazione progetto (Fasi 9-10) — le due parti rimanenti del piano originale.

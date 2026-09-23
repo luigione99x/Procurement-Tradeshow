@@ -15,6 +15,7 @@ const TABS = [
   { href: "/offerte", label: "Offerte" },
   { href: "/piano", label: "Piano e scadenze" },
   { href: "/assistente", label: "Assistente AI" },
+  { href: "/report", label: "Report finale" },
 ];
 
 export default async function PraticaLayout({
@@ -35,7 +36,7 @@ export default async function PraticaLayout({
 
   return (
     <div>
-      <div className="mb-4">
+      <div className="mb-4 print:hidden">
         <Link href="/dashboard" className="text-sm text-slate-500 hover:underline">
           ← Fiere attive
         </Link>
@@ -44,7 +45,7 @@ export default async function PraticaLayout({
           {pratica.fieraNome} {pratica.citta ? `· ${pratica.citta}` : ""}
         </p>
       </div>
-      <div className="border-b border-slate-200 mb-6">
+      <div className="border-b border-slate-200 mb-6 print:hidden">
         <nav className="flex gap-4 -mb-px">
           {TABS.map((tab) => (
             <Link
