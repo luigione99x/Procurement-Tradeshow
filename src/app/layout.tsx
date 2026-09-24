@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Procurement Fiere",
-  description: "Gestione pratiche di acquisto e realizzazione stand fieristici",
-};
+export const metadata: Metadata = { title: "Mirialis", description: "Partecipazione a fiere B2B: stand, preventivi, fornitori" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -1,63 +1,46 @@
 # Decisioni tecniche — Mirialis MVP
 
 Registro delle scelte. Ogni voce dice cosa è deciso, perché, e cosa resta da verificare.
-Aggiornato a: Fase 0, rivista dopo feedback (Smartlead Basic senza API, 1–2 account per cliente) — 2026-09-24.
+Aggiornato a: ripartenza da zero + Fase 1 — 2026-09-24.
 
 ---
 
-## D1 — Base di codice: si evolve il repository esistente, non si riparte da zero
+## D1 — Ripartenza da zero (24/09/2026, su richiesta)
 
-- Il repo contiene già un'app funzionante: **Next.js 14 (App Router) + TypeScript + Prisma + Neon + Zod + Vercel Blob**.
-- Il lavoro più avanzato era sul branch `claude/blissful-heisenberg-sr5s4w` (commit `d57bb9c`): pivot multi-cliente, ruoli
-  staff/cliente, database fornitori proprietario (201 fornitori importati), redazione dei fornitori non rivelati, migrazioni
-  versionate. **Quel branch è quello realmente deployato** (ultimi deploy Vercel, tutti in *preview*) e **le sue 5 migrazioni sono
-  quelle applicate** su Neon (`plain-pond-60555463`, tabella `_prisma_migrations`).
-- Il branch di lavoro `claude/new-session-p59t9q` è stato portato in avanti (fast-forward) su `d57bb9c`. Nessuna riscrittura di storia.
-- Stack confermato; nessun framework nuovo introdotto.
+- Il vecchio prototipo ("Procurement Fiere" / pivot "Miralis") è stato **eliminato**: codice rimosso dal branch (resta solo nella
+  storia di git) e database Neon svuotato. **Backup** del database nel branch Neon `backup-vecchio-prototipo-2026-09-24`
+  (nessun compute, invisibile all'app). Eliminati anche i 201 fornitori importati: l'outbound si fa da Smartlead.
+- Tenuto solo il lavoro fatto oggi seguendo il prompt: connettori (`src/lib/connectors`), firma HMAC, decisioni, verifica OpenAI.
+- **Stack:** Next.js 15 (App Router) + React 19 + TypeScript · **Drizzle ORM** · Neon Postgres (driver `@neondatabase/serverless`,
+  via WebSocket/HTTPS: adatto a Vercel) · Zod 4 · jose (sessione) · bcryptjs · Tailwind 3 · Vitest + **PGlite** (Postgres reale in
+  memoria per i test, con le stesse migrazioni).
+- Perché Drizzle e non Prisma: lo stesso codice gira su Neon in produzione e su PGlite nei test senza motori nativi, e le migrazioni
+  sono file SQL leggibili e versionati (`drizzle/`).
 
-## D2 — Mappatura entità della specifica → schema esistente
+## D2 — Entità
 
-Si adattano le entità allo schema esistente (nomi italiani già in produzione) invece di rinominare tabelle con dati reali.
+Nomi della specifica. **Fase 1 (create):** `organizations` (mirialis | client, flag demo), `users` (admin | client),
+`client_mailboxes` (max 2 per cliente, garantito dal DB con slot 1–2 univoco), `fairs`, `suppliers` (creati dagli eventi di campagna,
+nessun import), `campaigns` (ID campagna Smartlead registrato dall'admin), `campaign_recipients` (stato osservato, primo invio, prima
+risposta), `integration_events` (source + external_id univoci = idempotenza).
+**Fasi successive:** documents, tasks, rfq_versions, threads, messages, attachments, reply_drafts, send_requests, offers,
+offer_versions, notifications. Niente csv_imports: le liste di contatto vivono in Smartlead.
 
-| Entità specifica | Tabella esistente | Da fare |
-|---|---|---|
-| organizations | `Company` (`type` = MIRALIS \| CLIENT) | — |
-| users | `User` (ruoli `MIRALIS_ADMIN`, `MIRALIS_OPERATOR`, `CLIENT`) | — |
-| fairs | `Pratica` | campi mancanti del questionario (A2) → Fase 2 |
-| documents | `Documento` | storage **privato**, testo per pagina, stato lettura → Fase 2 |
-| tasks | `PianoAttivita` | origine AI vs manuale, blocco sovrascrittura, pagina fonte → Fase 2 |
-| rfq_versions | `CapitolatoVersion` | stato "associata a campagna" = congelata, flag budget esplicito → Fase 2 |
-| suppliers | `Supplier` (globale Mirialis) + `Fornitore` (fornitore ↔ fiera) | — |
-| csv_imports | `SupplierImportBatch` | report errori per riga persistito → Fase 3 |
-| campaigns | `RFQCampaign` | `smartleadCampaignId` (registrato dall'admin), account del cliente usati, stato → Fase 3 |
-| campaign_recipients | nuova `CampaignRecipient` (sostituisce `RFQInvio`) | `smartleadLeadId`, stato osservato → Fase 3 |
-| threads / messages / attachments | `EmailThread` / `EmailMessage` / `EmailAttachment` | chiave `messageId` (RFC), `accountEmail`, `leadId`, stato allegato → Fase 4 |
-| reply_drafts | nuova `ReplyDraft` | Fase 4 |
-| send_requests | nuova `SendRequest` (con CC, `requestId` univoco) | Fase 6 |
-| offers / offer_versions | `Offerta` (+ nuova `OffertaVersione` per lo storico) | Fase 5 |
-| notifications | nuova `Notification` (chiave univoca di dedup) | Fase 4 |
-| account email del cliente | nuova `ClientMailbox` (max 2 per organizzazione, nome credenziale n8n) | Fase 1 |
-| integration_events | nuova `IntegrationEvent` (`source`+`externalId` univoci, tentativi, errore) | Fase 4 |
+## D3 — Ruoli e accesso
 
-## D3 — Ruoli
+- **admin** = staff Mirialis, appartiene all'organizzazione Mirialis, vede tutto. **client** = solo la propria organizzazione.
+  Il vincolo "admin solo in Mirialis, client solo in organizzazioni cliente" è verificato alla creazione dell'utente.
+- Niente registrazione pubblica: i clienti e i loro utenti li crea l'admin.
+- Tutta l'autorizzazione è in `src/lib/access.ts`; le route non interrogano direttamente le tabelle. ID di un'altra organizzazione →
+  **404**. Il cliente riceve solo contatori e i fornitori che hanno risposto, mai l'elenco completo (verificato da test).
+- Sessione: cookie httpOnly firmato (HS256, 7 giorni) con il solo id utente; ruolo e organizzazione riletti dal DB a ogni richiesta.
+  Le richieste che modificano dati verificano l'Origin (CSRF).
 
-- **Admin** = `MIRALIS_ADMIN` (tutte le fiere) / `MIRALIS_OPERATOR` (solo fiere assegnate). **Cliente** = `CLIENT` (solo la propria organizzazione).
-- Controlli già centralizzati in `src/lib/authz.ts` e `src/lib/scope.ts#getPraticaScoped`. In Fase 1 si verificano **tutte** le route
-  con test di isolamento (due organizzazioni, ID manomessi).
-- `/signup` pubblico crea sempre e solo un tenant `CLIENT`.
+## D4 — L'app non spedisce email direttamente
 
-## D4 — Invio email: il codice Gmail diretto esistente va dismesso
-
-Il codice attuale invia RFQ e risposte **direttamente da Gmail** (`src/lib/gmail.ts`, `src/lib/jobs/inviaRfq.ts`,
-`/api/pratiche/[id]/comunicazioni/[threadId]/invia`) e legge la posta con un cron Vercel (`/api/cron/email-poll`).
-Questo contraddice l'architettura richiesta:
-
-- **Invio iniziale RFQ → Smartlead** (campagna creata a mano dall'admin: piano Basic senza API, vedi D8).
-- **Eventi e conversazioni → webhook Smartlead e caselle del cliente, raccolti da n8n**; **risposte approvate → n8n dalla casella del cliente**.
-- Il backend non tocca più né le caselle né Smartlead direttamente: parla solo con n8n.
-
-Fino alla sostituzione (Fasi 3–6) il vecchio percorso resta protetto da `EMAIL_MODE=sandbox` (default: blocca ogni destinatario
-fuori `EMAIL_TEST_ALLOWLIST`). Nessuna credenziale Gmail è configurata nell'app, quindi oggi non può partire nulla.
+- Invio iniziale RFQ → Smartlead (campagna creata dall'admin, D8). Eventi e conversazioni → webhook Smartlead e caselle del cliente,
+  raccolti da n8n. Risposte approvate → n8n dalla casella del cliente.
+- Il backend parla solo con n8n (webhook firmati); non ha credenziali di caselle né di Smartlead.
 
 ## D5 — Modalità dei connettori e guard sugli invii
 
@@ -85,11 +68,10 @@ fuori `EMAIL_TEST_ALLOWLIST`). Nessuna credenziale Gmail è configurata nell'app
     (classificazione ed estrazione dalle risposte: volumi più alti, conta la velocità). Entrambi impostati su Vercel.
 - La chiave è in `.env.local` (git-ignored) e su Vercel (`OPENAI_API_KEY`, tipo sensitive, Production + Preview). In n8n non serve (D16).
 
-## D7 — Provider AI secondario (Anthropic)
+## D7 — Solo OpenAI, nessun fallback su altri modelli
 
-Il codice esistente ricade automaticamente su Anthropic se OpenAI fallisce. La specifica prevede OpenAI con Structured Outputs e
-"errore AI → stato recuperabile, mai dato inventato". **Decisione: fallback automatico disattivato di default** (Fase 2): un errore
-OpenAI produce uno stato "Da verificare/Errore AI" visibile all'admin, non una risposta di un altro modello con garanzie di schema diverse.
+Errore, timeout o schema non valido → stato "Errore AI / Da verificare" visibile all'admin e recuperabile; mai una risposta di un altro
+provider né un dato inventato.
 
 ## D8 — Smartlead Basic (senza API): Smartlead invia, n8n osserva e risponde (rivisto 2×)
 
@@ -146,16 +128,15 @@ Il backend attribuisce da solo thread/campagna alla fiera: n8n non passa mai un 
 
 ## D12 — Migrazioni
 
-- Migrazioni versionate Prisma in `prisma/migrations/` (già introdotte).
-- Da questa sessione cloud **non c'è accesso TCP a Neon** (porta 5432 non raggiungibile): le migrazioni si generano offline con
-  `prisma migrate diff` e si applicano tramite l'integrazione Neon, **prima su un branch Neon di prova**, poi sul branch principale, con
-  registrazione in `_prisma_migrations`. Da un ambiente con accesso diretto: `npm run db:migrate:deploy`.
+- File SQL versionati in `drizzle/` generati con `npm run db:generate`; i test li applicano a PGlite ad ogni esecuzione.
+- Da questa sessione cloud non c'è accesso diretto a Neon: le migrazioni si applicano tramite l'integrazione Neon eseguendo lo stesso
+  SQL e registrando l'hash (sha256 del file) in `drizzle.__drizzle_migrations`, esattamente come farebbe il migratore di Drizzle.
+  `0000_init` applicata il 24/09/2026.
 
 ## D13 — Storage documenti privato
 
-`src/lib/blob.ts` oggi carica con `access: "public"` (URL indovinabile = documento leggibile). Nel DB ci sono 2 documenti caricati così.
-**Fase 2**: upload privato, download solo tramite route autenticata che verifica i permessi e fa da proxy/URL firmato a breve scadenza;
-limiti su tipo (PDF, immagini, CSV/XLSX dove serve) e dimensione. I 2 blob esistenti vanno migrati o eliminati (decisione dell'utente).
+PDF e allegati su Vercel Blob in modalità **privata**; download solo tramite route autenticata che verifica i permessi. Limiti su tipo
+e dimensione (Fase 2). I 2 PDF del vecchio prototipo (link pubblici) si eliminano con il pulsante una tantum in Admin.
 
 ## D14 — Modalità demo
 

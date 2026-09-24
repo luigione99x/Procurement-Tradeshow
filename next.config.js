@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ["mailparser"],
-  },
+module.exports = {
+  poweredByHeader: false,
+  serverExternalPackages: ["@electric-sql/pglite"],
 };
-
-module.exports = nextConfig;

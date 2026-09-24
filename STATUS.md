@@ -1,66 +1,67 @@
 # STATUS — Mirialis MVP
 
-Aggiornato a fine di ogni fase. Lo storico dettagliato delle sessioni precedenti è in `IMPLEMENTATION_STATUS.md`.
+Aggiornato a fine di ogni fase.
 
 ---
 
-## Fase 0 — Audit ✅ completata (in attesa di ok)
+## Ripartenza da zero ✅ (24/09/2026)
 
-### Cosa è stato fatto
-- Letto il repository e individuato il branch realmente in uso (`claude/blissful-heisenberg-sr5s4w`, deployato su Vercel, migrazioni
-  su Neon). Il branch di lavoro `claude/new-session-p59t9q` è stato portato su quella base (fast-forward).
-- Mappa schermata → dati → tabella/API → workflow, verifiche dei servizi e rischi: `docs/AUDIT_FASE0.md`.
-- Decisioni tecniche: `docs/DECISIONI.md` (D1–D14).
-- Mock locali di "n8n + Smartlead" (campagne, eventi, conversazioni dell'account assegnato, risposte nel thread) con modalità
-  `mock | test | live` e guard sugli invii reali.
-- **Revisione dopo feedback** (D8, D9, D15): Smartlead è su piano **Basic, senza API** → la campagna la crea l'admin a mano
-  (Mirialis esporta CSV e testo); gli eventi arrivano con i webhook Smartlead a n8n, con le caselle del cliente come seconda fonte;
-  le risposte dalla dashboard partono da n8n dalla casella del cliente, nello stesso thread. **1–2 caselle dedicate per cliente.**
-- Firma HMAC per il collegamento n8n ↔ backend.
-- Chiave OpenAI salvata in `.env.local` (non committato); `.gitignore` rafforzato su `.env*`; `.env.example` riscritto **solo con nomi**.
-- La riga con la chiave è stata rimossa dal file del prompt caricato.
+- Codice del vecchio prototipo rimosso (resta solo nella storia di git). Database Neon svuotato, **backup** nel branch Neon
+  `backup-vecchio-prototipo-2026-09-24`. Eliminati i 201 fornitori importati (l'outbound si fa da Smartlead).
+- Tenuti: connettori Smartlead/risposte (mock), firma HMAC, decisioni, verifica OpenAI. Nuovo stack: Next.js 15 + Drizzle + Neon (D1).
+- Da fare una volta dopo il deploy: in **Admin → "Elimina file del vecchio prototipo"** (2 PDF con link pubblico nello storage).
 
-### File creati / modificati
-- `src/lib/connectors/mode.ts` — modalità e guard (`TEST_RECIPIENT_ALLOWLIST`, `ALLOW_LIVE_SEND`)
-- `src/lib/connectors/hmac.ts` — firma/verifica HMAC con timestamp
-- `src/lib/connectors/n8nClient.ts` — POST firmato verso i webhook n8n (unico canale in uscita)
-- `src/lib/connectors/smartlead/{types,mock}.ts` — eventi webhook normalizzati e simulatore (campagna manuale, rotazione sui 2 account, invii, bounce, risposte)
-- `src/lib/connectors/reply/{types,index}.ts` — invio risposta approvata (n8n → casella del cliente): idempotenza, errore, esito ambiguo, mittente sbagliato
-- `src/lib/connectors/connectors.test.ts` — 11 test
-- `scripts/verify-openai.mjs` — verifica chiave + Structured Outputs sui modelli configurati
-- `docs/DECISIONI.md`, `docs/AUDIT_FASE0.md`, `STATUS.md`
-- `.env.example`, `.gitignore`
+## Fase 0 — Audit ✅
 
-### Migrazioni
-Nessuna in questa fase.
+Decisioni in `docs/DECISIONI.md` (D1–D16). Punti chiave: Smartlead Basic senza API (campagna manuale + webhook, D8–D9), 1–2 caselle
+per cliente (D15), AI solo nel backend (D16), OpenAI verificato con chiamate reali: `gpt-5.5` per i documenti, `gpt-5.4-mini` per
+le risposte (D6).
+
+## Fase 1 — DB, login, isolamento ✅ (in attesa di ok)
+
+### Fatto
+- **Schema e migrazione** `drizzle/0000_init.sql`: organizations, users, client_mailboxes, fairs, suppliers, campaigns,
+  campaign_recipients, integration_events. Applicata su Neon e registrata in `drizzle.__drizzle_migrations`.
+- **Vincoli nel DB**: email utenti/fornitori/caselle univoche (case-insensitive), **massimo 2 caselle per cliente** (slot 1–2 univoco),
+  un destinatario per fornitore per campagna, eventi esterni univoci per (source, external_id).
+- **Login** con cookie di sessione firmato; password bcrypt; confronto a tempo costante anche per email inesistenti.
+- **Permessi nel backend** (`src/lib/access.ts`): admin vede tutto, cliente solo la propria organizzazione, ID altrui → 404,
+  funzioni admin → 403. Il cliente riceve **solo contatori** (contattati · risposte · interessati · preventivi) e i **nomi dei soli
+  fornitori che hanno risposto**, senza email. L'elenco completo esiste solo in un endpoint admin.
+- **API**: `/api/auth/login|logout`, `/api/fairs`, `/api/fairs/[id]`, `/api/fairs/[id]/progress`, `/api/fairs/[id]/suppliers`,
+  `/api/admin/organizations|users|mailboxes|demo|legacy-blobs`, `/api/admin/fairs/[id]/recipients`. Controllo Origin sulle modifiche.
+- **Schermate**: login, elenco fiere + creazione, panoramica fiera (contatori, chi ha risposto, dati fiera; tabella completa solo
+  admin), Admin (clienti, utenti, caselle max 2, demo). Banner "Modalità demo: invii simulati" finché i connettori sono in mock.
+- **Dati demo separati**: pulsante in Admin → organizzazione `is_demo`, fornitori su dominio `.test`, idempotente.
+- **Vercel env**: `AUTH_SECRET` rigenerata (Prod+Preview), più quelle già impostate (OpenAI, modalità mock, segreto n8n).
+- **Account admin** creato per `cimmarrusti.daniele@gmail.com` (password comunicata in chat, da cambiare: la funzione "cambia
+  password" arriva con la Fase 2).
 
 ### Prove
 | Prova | Risultato |
 |---|---|
-| `npx vitest run` | ✅ 58/58 (47 preesistenti + 11 nuovi) |
-| `npx tsc --noEmit` | ✅ nessun errore |
-| Neon: letture | ✅ |
-| Vercel: progetto/deploy | ✅ |
-| n8n: workflow/credenziali | ✅ |
-| OpenAI | ✅ chiave valida; Structured Outputs + PDF verificati su `gpt-5.5` e `gpt-5.4-mini` (sandbox Vercel) |
-| Vercel env vars | ✅ accesso ripristinato; impostate `OPENAI_API_KEY` (Prod+Preview), `OPENAI_MODEL_DOCS`, `OPENAI_MODEL_REPLIES`, `SMARTLEAD_MODE=mock`, `MAILBOX_MODE=mock`, `N8N_SHARED_SECRET` |
+| `npm test` (Vitest + PGlite con le migrazioni reali) | ✅ 23/23 |
+| Due organizzazioni non leggono i dati l'una dell'altra (liste, dettaglio, contatori, fornitori) | ✅ |
+| ID manomessi / non UUID / inesistenti → 404 | ✅ |
+| Cliente non può creare fiere in altre organizzazioni (organizationId nel body ignorato) | ✅ |
+| Cliente non ottiene elenco completo né nomi/email dei non rispondenti | ✅ |
+| Terza casella rifiutata, anche inserendo direttamente nel DB | ✅ |
+| Demo separata e idempotente | ✅ |
+| `tsc --noEmit`, `next build` | ✅ |
 
 ### Criterio di uscita
-*"Chiaro cosa è simulato, quali API sono verificate, cosa sarà manuale"* → tabella in `docs/AUDIT_FASE0.md` §3.
+*"Due organizzazioni non leggono i dati l'una dell'altra; un Cliente non può enumerare né esportare i non rispondenti via API"* → ✅ (test in `src/lib/access.test.ts`).
 
-### Problemi aperti / cosa serve da te
-1. **Blob pubblico**: 2 documenti già caricati con URL pubblico. In Fase 2 passo a storage privato: li migro o li elimino?
-2. *(dalla Fase 3)* **Webhook sul piano Basic**: in Smartlead → campagna → impostazioni → *Webhooks*: si può salvare un URL?
-3. *(dalla Fase 3)* **1 casella Gmail** per il cliente di prova, collegata a Smartlead e a n8n (credenziale Gmail OAuth2). Il fornitore
-   finto lo faccio io con la Gmail collegata a questa sessione.
+### Aperti
+- Cambio password e reset: Fase 2.
+- Limitazione tentativi di login (rate limit): da aggiungere prima dell'uso con clienti reali.
+- Variabili Vercel vecchie non più usate (`SERPER_API_KEY`, `CRON_SECRET`, `OPENAI_MODEL`, `DIRECT_URL`): innocue, da rimuovere.
 
-Risolti: accesso Vercel, chiave e modelli OpenAI, rete (non più necessaria), credenziale OpenAI in n8n (non necessaria, D16).
+## Cosa serve dall'utente
+- Nulla per la Fase 2.
+- *(dalla Fase 3)* esito controllo **Webhooks** su Smartlead (piano Basic) e **1 casella Gmail** per il cliente di prova, collegata
+  a Smartlead e a n8n.
 
-### Variabili da compilare per i test live
-App (Vercel, già impostate: chiave e modelli OpenAI, modalità mock, `N8N_SHARED_SECRET`). Da aggiungere: `N8N_SEND_REPLY_WEBHOOK_URL`, `N8N_CHECK_SENT_WEBHOOK_URL`, `N8N_NOTIFY_WEBHOOK_URL`,
-`TEST_RECIPIENT_ALLOWLIST` (+ `ALLOW_LIVE_SEND=true` solo dopo il collaudo).
-n8n: credenziali delle caselle, stesso `N8N_SHARED_SECRET` (lo imposto io nei workflow). Smartlead: nessuna chiave (piano Basic).
-
-### Prossima fase proposta — Fase 1 (DB, login, isolamento)
-Test di isolamento su tutte le route (due organizzazioni, ID manomessi), API cliente dei fornitori ridotta a soli contatori, seed demo
-separato, migrazione per `ClientMailbox` (max 2 per cliente), `IntegrationEvent`, `CampaignRecipient` base.
+## Prossima fase — Fase 2 (Event Manager e RFQ)
+Documenti privati + estrazione testo per pagina, timeline AI con documento/pagina e date "da confermare", modifiche manuali protette,
+questionario, brief/RFQ con versioni congelate.

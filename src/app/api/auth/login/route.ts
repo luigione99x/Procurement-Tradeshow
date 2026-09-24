@@ -1,24 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
-import { verifyPassword, createSession } from "@/lib/auth";
-import { handleApiError } from "@/lib/scope";
+import { getDb } from "@/db/client";
+import { apiError, assertSameOrigin } from "@/lib/api";
+import { authenticate } from "@/lib/auth/login";
+import { startSession } from "@/lib/auth/session";
+import { HttpError } from "@/lib/errors";
 
-const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = schema.parse(await req.json());
-    const user = await prisma.user.findUnique({ where: { email: body.email } });
-    if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
-      return NextResponse.json({ error: "Credenziali non valide" }, { status: 401 });
-    }
-    await createSession({ userId: user.id, companyId: user.companyId, role: user.role });
-    return NextResponse.json({ ok: true });
+    assertSameOrigin(req);
+    const { email, password } = z.object({ email: z.string().min(3), password: z.string().min(1) }).parse(await req.json());
+    const user = await authenticate(getDb(), email, password);
+    if (!user) throw new HttpError(401, "Email o password non corrette");
+    await startSession(user.id);
+    return NextResponse.json({ ok: true, role: user.role });
   } catch (err) {
-    return handleApiError(err);
+    return apiError(err);
   }
 }
