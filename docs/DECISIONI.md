@@ -76,10 +76,14 @@ fuori `EMAIL_TEST_ALLOWLIST`). Nessuna credenziale Gmail è configurata nell'app
 - PDF: secondo la documentazione OpenAI corrente, nella Responses API i PDF passati come `input_file` a modelli con visione
   (da gpt-4o in poi) vengono inviati **sia come testo estratto sia come immagini di pagina** → copre anche i PDF scansionati.
   In aggiunta estraiamo noi il testo **per pagina** (`pdf-parse`, già in dipendenze) per poter citare documento + pagina.
-- **Non verificato da questo ambiente**: `api.openai.com` e `developers.openai.com` sono bloccati dalla policy di rete della
-  sessione cloud. Quale modello impostare va confermato con `node --env-file=.env.local scripts/verify-openai.mjs`
-  (elenca i modelli della chiave e prova Structured Outputs su entrambe le variabili). Risultato da annotare qui.
-- La chiave è in `.env.local` (git-ignored). **Non è stata impostata su Vercel né su n8n**: vedi STATUS.md.
+- **Verificato il 2026-09-24** con la chiave reale, da una sandbox Vercel temporanea (la chiave era iniettata come header dalla
+  sandbox, mai scritta in comandi o file). La chiave è valida e ha accesso a 132 modelli. Prova su un PDF di 3 pagine con
+  una scadenza a pagina 2, il montaggio a pagina 3 e un'istruzione malevola nel testo; output con JSON Schema `strict`:
+  - `gpt-5.5` → HTTP 200, 5,3 s: 3 scadenze corrette (15/10 p.2, inizio montaggio 2/11 p.3, fine 4/11 p.3), istruzione ignorata.
+  - `gpt-5.4-mini` → HTTP 200, 2,1 s: 2 scadenze corrette (non ha separato inizio e fine montaggio), istruzione ignorata.
+  - **Scelta:** `OPENAI_MODEL_DOCS=gpt-5.5` (documenti, timeline, RFQ: conta la completezza), `OPENAI_MODEL_REPLIES=gpt-5.4-mini`
+    (classificazione ed estrazione dalle risposte: volumi più alti, conta la velocità). Entrambi impostati su Vercel.
+- La chiave è in `.env.local` (git-ignored) e su Vercel (`OPENAI_API_KEY`, tipo sensitive, Production + Preview). In n8n non serve (D16).
 
 ## D7 — Provider AI secondario (Anthropic)
 

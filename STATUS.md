@@ -40,29 +40,26 @@ Nessuna in questa fase.
 | `npx vitest run` | ✅ 58/58 (47 preesistenti + 11 nuovi) |
 | `npx tsc --noEmit` | ✅ nessun errore |
 | Neon: letture | ✅ |
-| Vercel: progetto/deploy | ✅ · env vars ❌ 403 |
+| Vercel: progetto/deploy | ✅ |
 | n8n: workflow/credenziali | ✅ |
-| OpenAI / Smartlead | ⛔ host bloccati dalla rete della sessione |
+| OpenAI | ✅ chiave valida; Structured Outputs + PDF verificati su `gpt-5.5` e `gpt-5.4-mini` (sandbox Vercel) |
+| Vercel env vars | ✅ accesso ripristinato; impostate `OPENAI_API_KEY` (Prod+Preview), `OPENAI_MODEL_DOCS`, `OPENAI_MODEL_REPLIES`, `SMARTLEAD_MODE=mock`, `MAILBOX_MODE=mock`, `N8N_SHARED_SECRET` |
 
 ### Criterio di uscita
 *"Chiaro cosa è simulato, quali API sono verificate, cosa sarà manuale"* → tabella in `docs/AUDIT_FASE0.md` §3.
 
 ### Problemi aperti / cosa serve da te
-1. **Webhook sul piano Basic**: in Smartlead → campagna → impostazioni/integrazioni → *Webhooks*. Se si può salvare un URL, usiamo i
-   webhook; altrimenti leggiamo solo le caselle (funziona comunque, vedi D9).
-2. **Caselle del cliente di prova**: crea 1–2 caselle dedicate (Gmail/Workspace consigliato), collegale a Smartlead e crea in n8n una
-   credenziale per ciascuna (Gmail OAuth2). Dimmi indirizzi e nomi delle credenziali.
-3. ~~Credenziale OpenAI in n8n~~: non serve più (D16: l'AI gira nel backend).
-4. **Vercel env vars**: 403 sul team `ai-tradeshow-app`. Imposta tu `OPENAI_API_KEY` (Production + Preview), oppure ricollega
-   l'integrazione Vercel con accesso a quel team.
-5. **Rete della sessione cloud**: per verificare il modello OpenAI da qui serve `api.openai.com` tra gli host consentiti.
-   In alternativa esegui tu `node --env-file=.env.local scripts/verify-openai.mjs`.
-6. **Blob pubblico**: 2 documenti già caricati con URL pubblico. In Fase 2 passo a storage privato: li migro o li elimino?
+1. **Blob pubblico**: 2 documenti già caricati con URL pubblico. In Fase 2 passo a storage privato: li migro o li elimino?
+2. *(dalla Fase 3)* **Webhook sul piano Basic**: in Smartlead → campagna → impostazioni → *Webhooks*: si può salvare un URL?
+3. *(dalla Fase 3)* **1 casella Gmail** per il cliente di prova, collegata a Smartlead e a n8n (credenziale Gmail OAuth2). Il fornitore
+   finto lo faccio io con la Gmail collegata a questa sessione.
+
+Risolti: accesso Vercel, chiave e modelli OpenAI, rete (non più necessaria), credenziale OpenAI in n8n (non necessaria, D16).
 
 ### Variabili da compilare per i test live
-App (Vercel): `N8N_SHARED_SECRET`, `N8N_SEND_REPLY_WEBHOOK_URL`, `N8N_CHECK_SENT_WEBHOOK_URL`, `N8N_NOTIFY_WEBHOOK_URL`,
-`TEST_RECIPIENT_ALLOWLIST`, `OPENAI_MODEL_DOCS`, `OPENAI_MODEL_REPLIES` (+ `ALLOW_LIVE_SEND=true` solo dopo il collaudo).
-n8n: credenziali delle caselle, credenziale OpenAI, stesso `N8N_SHARED_SECRET`. Smartlead: nessuna chiave (piano Basic).
+App (Vercel, già impostate: chiave e modelli OpenAI, modalità mock, `N8N_SHARED_SECRET`). Da aggiungere: `N8N_SEND_REPLY_WEBHOOK_URL`, `N8N_CHECK_SENT_WEBHOOK_URL`, `N8N_NOTIFY_WEBHOOK_URL`,
+`TEST_RECIPIENT_ALLOWLIST` (+ `ALLOW_LIVE_SEND=true` solo dopo il collaudo).
+n8n: credenziali delle caselle, stesso `N8N_SHARED_SECRET` (lo imposto io nei workflow). Smartlead: nessuna chiave (piano Basic).
 
 ### Prossima fase proposta — Fase 1 (DB, login, isolamento)
 Test di isolamento su tutte le route (due organizzazioni, ID manomessi), API cliente dei fornitori ridotta a soli contatori, seed demo
