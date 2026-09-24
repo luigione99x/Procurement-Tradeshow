@@ -48,6 +48,7 @@ le risposte (D6).
 | Terza casella rifiutata, anche inserendo direttamente nel DB | ✅ |
 | Demo separata e idempotente | ✅ |
 | `tsc --noEmit`, `next build` | ✅ |
+| **Prova dal vivo sul deploy Vercel** (sandbox, 2 clienti creati via API e poi rimossi): anonimo → 401; login admin/clienti → 200; cliente A su fiera B (dettaglio, contatori, fornitori) → 404; cliente A su endpoint admin → 403 e `/admin` → 404; POST senza Origin → 403; password errata → 401; fiera creata da A con `organizationId` di B finisce in A | ✅ |
 
 ### Criterio di uscita
 *"Due organizzazioni non leggono i dati l'una dell'altra; un Cliente non può enumerare né esportare i non rispondenti via API"* → ✅ (test in `src/lib/access.test.ts`).
