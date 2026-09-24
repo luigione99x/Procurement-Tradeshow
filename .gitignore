@@ -1,8 +1,8 @@
 node_modules
 .next
-.env
-.env.local
-.env*.local
+# segreti: nessun file .env* va mai committato, tranne il modello senza valori
+.env*
+!.env.example
 *.log
 .vercel
 tsconfig.tsbuildinfo
