@@ -166,3 +166,10 @@ schermata che usa dati simulati. Nessuna funzione simulata viene chiamata "integ
   dashboard parte sempre da lì (il backend rifiuta un mittente diverso).
 - Le credenziali delle caselle stanno **solo in n8n** (una credenziale per casella). In Mirialis si registrano solo indirizzo, cliente
   e nome della credenziale n8n.
+
+## D16 — L'AI gira solo nel backend, non in n8n
+
+Classificazione, sintesi, estrazione prezzi e bozze delle risposte dei fornitori sono eseguite dal **backend Mirialis** (su Vercel)
+quando n8n consegna un messaggio, non da nodi OpenAI dentro n8n. Motivi: una sola chiave in un solo posto (env Vercel), schemi e
+rivalidazione nello stesso codice, errori AI visibili all'admin in dashboard. n8n resta un trasportatore: webhook Smartlead, caselle,
+invio delle risposte approvate, notifiche. **Non serve nessuna credenziale OpenAI in n8n.**

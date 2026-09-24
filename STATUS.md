@@ -52,7 +52,7 @@ Nessuna in questa fase.
    webhook; altrimenti leggiamo solo le caselle (funziona comunque, vedi D9).
 2. **Caselle del cliente di prova**: crea 1–2 caselle dedicate (Gmail/Workspace consigliato), collegale a Smartlead e crea in n8n una
    credenziale per ciascuna (Gmail OAuth2). Dimmi indirizzi e nomi delle credenziali.
-3. **n8n**: credenziale **OpenAI** con la stessa chiave (il server MCP non può creare credenziali).
+3. ~~Credenziale OpenAI in n8n~~: non serve più (D16: l'AI gira nel backend).
 4. **Vercel env vars**: 403 sul team `ai-tradeshow-app`. Imposta tu `OPENAI_API_KEY` (Production + Preview), oppure ricollega
    l'integrazione Vercel con accesso a quel team.
 5. **Rete della sessione cloud**: per verificare il modello OpenAI da qui serve `api.openai.com` tra gli host consentiti.
