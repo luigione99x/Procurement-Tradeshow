@@ -1,7 +1,7 @@
 # Decisioni tecniche — Mirialis MVP
 
 Registro delle scelte. Ogni voce dice cosa è deciso, perché, e cosa resta da verificare.
-Aggiornato a: Fase 0 (2026-09-24).
+Aggiornato a: Fase 0, rivista dopo feedback su Smartlead/n8n (2026-09-24).
 
 ---
 
@@ -29,9 +29,9 @@ Si adattano le entità allo schema esistente (nomi italiani già in produzione) 
 | rfq_versions | `CapitolatoVersion` | stato "associata a campagna" = congelata, flag budget esplicito → Fase 2 |
 | suppliers | `Supplier` (globale Mirialis) + `Fornitore` (fornitore ↔ fiera) | — |
 | csv_imports | `SupplierImportBatch` | report errori per riga persistito → Fase 3 |
-| campaigns | `RFQCampaign` | `smartleadCampaignId`, casella mittente, stato → Fase 3 |
+| campaigns | `RFQCampaign` | `smartleadCampaignId`, **account email Smartlead assegnato**, stato → Fase 3 |
 | campaign_recipients | nuova `CampaignRecipient` (sostituisce `RFQInvio`) | `smartleadLeadId`, stato osservato → Fase 3 |
-| threads / messages / attachments | `EmailThread` / `EmailMessage` / `EmailAttachment` | chiavi `rfcMessageId`, `smartleadMessageId`, stato allegato → Fase 4 |
+| threads / messages / attachments | `EmailThread` / `EmailMessage` / `EmailAttachment` | chiavi `messageId` (RFC), `statsId`, `emailAccountId`, stato allegato → Fase 4 |
 | reply_drafts | nuova `ReplyDraft` | Fase 4 |
 | send_requests | nuova `SendRequest` (con CC, `requestId` univoco) | Fase 6 |
 | offers / offer_versions | `Offerta` (+ nuova `OffertaVersione` per lo storico) | Fase 5 |
@@ -51,21 +51,22 @@ Il codice attuale invia RFQ e risposte **direttamente da Gmail** (`src/lib/gmail
 `/api/pratiche/[id]/comunicazioni/[threadId]/invia`) e legge la posta con un cron Vercel (`/api/cron/email-poll`).
 Questo contraddice l'architettura richiesta:
 
-- **Invio iniziale RFQ → Smartlead** (connettore `src/lib/connectors/smartlead`).
-- **Lettura risposte e invio risposte approvate → n8n**, che possiede la casella (connettore `src/lib/connectors/mailbox`).
-- Il backend non tocca più la casella direttamente.
+- **Tutto il traffico email passa da Smartlead, e Smartlead è raggiungibile solo da n8n** (vedi D8/D9).
+- Invio iniziale RFQ, lettura delle conversazioni e invio delle risposte approvate: backend → n8n → Smartlead, sempre dall'account
+  email assegnato alla campagna (connettori `src/lib/connectors/smartlead` e `src/lib/connectors/reply`).
+- Il backend non tocca più né la casella né Smartlead direttamente.
 
 Fino alla sostituzione (Fasi 3–6) il vecchio percorso resta protetto da `EMAIL_MODE=sandbox` (default: blocca ogni destinatario
 fuori `EMAIL_TEST_ALLOWLIST`). Nessuna credenziale Gmail è configurata nell'app, quindi oggi non può partire nulla.
 
 ## D5 — Modalità dei connettori e guard sugli invii
 
-`SMARTLEAD_MODE` e `MAILBOX_MODE` = `mock | test | live` (`src/lib/connectors/mode.ts`).
+`SMARTLEAD_MODE` (campagne) e `MAILBOX_MODE` (risposte dalla dashboard) = `mock | test | live` (`src/lib/connectors/mode.ts`).
 
-- `mock` (default, anche per valori non riconosciuti): simulatore in-process, nessuna rete, nessuna email.
-- `test`: servizio reale, ma solo destinatari in `TEST_RECIPIENT_ALLOWLIST` (To **e** CC; per Smartlead sia al caricamento lead sia all'avvio campagna).
+- `mock` (default, anche per valori non riconosciuti): simulatore in-process di "n8n + Smartlead", nessuna rete, nessuna email.
+- `test`: n8n + Smartlead reali, ma solo destinatari in `TEST_RECIPIENT_ALLOWLIST` (To **e** CC; per le campagne sia al caricamento lead sia all'avvio).
 - `live`: richiede anche `ALLOW_LIVE_SEND=true`; la conferma esplicita dell'admin nell'app sarà un controllo aggiuntivo lato route (Fase 3/6).
-- I guard stanno nei factory `getSmartlead()` / `getMailbox()`, sopra qualunque implementazione: il codice applicativo non può aggirarli.
+- I guard stanno nei factory `getSmartlead()` / `getReplyBridge()`, sopra qualunque implementazione: il codice applicativo non può aggirarli.
 
 ## D6 — OpenAI
 
@@ -86,36 +87,50 @@ Il codice esistente ricade automaticamente su Anthropic se OpenAI fallisce. La s
 "errore AI → stato recuperabile, mai dato inventato". **Decisione: fallback automatico disattivato di default** (Fase 2): un errore
 OpenAI produce uno stato "Da verificare/Errore AI" visibile all'admin, non una risposta di un altro modello con garanzie di schema diverse.
 
-## D8 — Casella email e thread
+## D8 — Smartlead su n8n, conversazioni dall'account assegnato (rivisto dopo feedback)
 
-- Provider preferito: **Gmail API tramite n8n** (nodo Gmail con OAuth2). Mantiene il thread con `threadId` + header
-  `In-Reply-To`/`References` + oggetto `Re: …`. Il backend conserva per ogni messaggio `rfcMessageId` (header Message-ID), `providerMessageId`, `providerThreadId`.
-- **La stessa casella deve essere collegata sia a Smartlead (invio iniziale) sia a n8n** (lettura risposte e invio risposte), altrimenti
-  le risposte dei fornitori arrivano in un posto che n8n non legge.
-- In n8n esiste già una credenziale `Gmail account` (gmailOAuth2), **usata dai workflow "X-CONTENT"** di un altro progetto: **non va riusata**.
-  Serve una credenziale dedicata per la casella fornitori.
-- CC: il nodo Gmail di n8n espone `ccList` nell'invio/risposta; **non verificato** finché non c'è la casella dedicata (Fase 6).
-  Finché non verificato, la CC resta disabilitata in UI con il limite spiegato.
+**Architettura corretta:**
 
-## D9 — Smartlead
+```
+Dashboard (Vercel) ⇄ backend ⇄ [HMAC] ⇄ n8n ⇄ [HTTP, chiave in credenziale n8n] ⇄ Smartlead ⇄ casella (account assegnato)
+```
 
-- Ruolo: solo invio iniziale ai fornitori selezionati + eventi (inviato, risposta, bounce, disiscrizione).
-- Endpoint previsti (base `https://server.smartlead.ai/api/v1`, `api_key` in query, ~10 req/2 s): creazione campagna, sequenza,
-  associazione caselle, caricamento lead (con `custom_fields.mirialis_recipient_id`), avvio/pausa, elenco lead con stato, cronologia
-  messaggi del lead, webhook `EMAIL_SENT` / `EMAIL_REPLY` / `LEAD_UNSUBSCRIBED` / bounce.
-- **Non verificato**: `api.smartlead.ai` è bloccato dalla policy di rete della sessione e non abbiamo `SMARTLEAD_API_KEY`. Anche il
-  piano dell'account (l'accesso API/webhook dipende dal piano) va verificato. Il client HTTP (`src/lib/connectors/smartlead/http.ts`)
-  è scritto ma marcato non verificato.
+- **Smartlead vive dietro n8n.** Il backend non ha la chiave Smartlead e non lo chiama mai. In n8n non esiste un nodo Smartlead
+  nativo (verificato con la ricerca nodi): si usano nodi *HTTP Request* con una credenziale n8n che passa `api_key` in query.
+- **Account email assegnato**: ogni campagna Mirialis ha un account email Smartlead assegnato (`emailAccountId`). La RFQ parte da lì,
+  le risposte dei fornitori arrivano lì, le risposte approvate partono da lì.
+- **Le conversazioni in dashboard sono le email scambiate con quell'account**: n8n le prende da Smartlead (webhook `EMAIL_REPLY` +
+  cronologia messaggi del lead, `message-history`) filtrando su campagna + account assegnato, e le salva nel backend. Nessuna lettura
+  diretta della casella (niente Gmail API, niente credenziale Gmail in n8n): la casella è collegata **dentro Smartlead**.
+- **Thread**: si risponde con l'endpoint Smartlead di risposta nel thread (master inbox), che vuole l'id dell'invio a cui si risponde
+  (`stats_id`) e mantiene lo stesso thread lato casella. Il backend conserva per ogni messaggio `messageId` (Message-ID RFC 5322, chiave
+  di deduplica), `statsId`, `emailAccountId`, `leadId`, `campaignId`.
+- **CC**: da verificare sull'endpoint di risposta Smartlead con l'account reale (Fase 6). Finché non verificata, la CC resta disabilitata in UI
+  con il limite spiegato.
+
+## D9 — Operazioni Smartlead e cosa è verificato
+
+Workflow n8n "Smartlead bridge" (un webhook firmato, switch su `op`): `listEmailAccounts`, `createCampaign(name, emailAccountId)`,
+`saveSequence`, `addLeads` (con `custom_fields.mirialis_recipient_id`), `setStatus` (START/PAUSED/STOPPED), `listCampaignLeads`,
+`getMessageHistory`. Più: Workflow 1 (webhook Smartlead → backend), Workflow 2 (invio risposta), Workflow 4 (riconciliazione).
+
+- Endpoint Smartlead previsti (base `https://server.smartlead.ai/api/v1`, `api_key` in query, ~10 req/2 s): creazione campagna, sequenza,
+  associazione account, caricamento lead, stato campagna, elenco lead con stato, cronologia messaggi del lead, risposta nel thread,
+  webhook `EMAIL_SENT` / `EMAIL_REPLY` / `LEAD_UNSUBSCRIBED` / bounce.
+- **Non verificato**: servono `SMARTLEAD_API_KEY` (da mettere **solo** come credenziale in n8n) e conferma del piano (API + webhook).
+  Vantaggio di questa architettura: n8n raggiunge Smartlead anche se la rete di questa sessione cloud lo blocca, quindi le prove si
+  possono fare eseguendo i workflow n8n da qui.
 - Piano B se un'operazione non è disponibile via API: passaggio admin esplicito ("crea in Smartlead → incolla l'ID in Mirialis"),
   etichettato come manuale in UI.
-- Chiave di deduplica dei messaggi rilevati sia da Smartlead sia dalla casella: **`Message-ID` RFC 5322**; l'ID messaggio Smartlead
-  è conservato come riferimento secondario.
 - "Contattato" = solo dopo evento `EMAIL_SENT` osservato (webhook o riconciliazione). Caricare un lead non è inviare.
+- Idempotenza risposte: n8n registra il `requestId` prima di chiamare Smartlead; su esito ambiguo controlla la cronologia del lead prima
+  di qualunque nuovo tentativo (dettaglio in Fase 6).
 
 ## D10 — Job periodici: n8n, non Vercel Cron
 
-Il piano Vercel Hobby limita i cron a 1 esecuzione/giorno. Sincronizzazione e riconciliazione (Workflow 3 e 4) girano quindi come
-**schedule in n8n** che chiamano endpoint firmati del backend. La dashboard mostra sempre "ultimo aggiornamento" e non dichiara tempo reale.
+Il piano Vercel Hobby limita i cron a 1 esecuzione/giorno. Riconciliazione con Smartlead (Workflow 4) e promemoria (Workflow 3) girano
+come **schedule in n8n** che chiamano endpoint firmati del backend. La dashboard mostra sempre "ultimo aggiornamento" e non dichiara
+tempo reale.
 
 ## D11 — Autenticazione n8n ↔ backend
 

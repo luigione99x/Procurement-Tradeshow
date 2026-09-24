@@ -11,8 +11,8 @@ Stato alla data 2026-09-24, base `d57bb9c`. Legenda stato: **Reale** = funziona 
 | 3 | Documenti e timeline AI Event Manager | upload in `/brief`, piano in `/piano` | `Documento` (blob **pubblico**), `PianoAttivita` generato **solo dopo la scelta fornitore** | `Documento` (+testo per pagina) · `PianoAttivita` (+fonte doc/pagina, flag modifica manuale) | W3 (promemoria) | Parziale: niente timeline da PDF con pagina, niente protezione modifiche manuali |
 | 4 | Questionario e brief/RFQ con versioni | `/brief` (chat qualificazione o modulo), `CapitolatoVersion` | versioni capitolato con stati BOZZA/ATTESA/APPROVATO/SUPERATO | `Pratica.questionario` · `CapitolatoVersion` (+congelata, confermati/preferenze/mancanti, flag budget) | — | Parziale: questionario A2 incompleto, nessun congelamento legato alla campagna |
 | 5 | Stato ricerca fornitori (solo contatori per il cliente) | `/fornitori` con `FornitoriClienteView` | lista redatta ("Fornitore riservato 01"), stati | `CampaignRecipient` aggregato · API cliente che restituisce **solo numeri** | W4 | Parziale: oggi il cliente vede una riga per fornitore (anche anonima) → va ridotto a contatori |
-| 6 | Conversazioni dei fornitori che hanno risposto, con bozze | `/comunicazioni` (**solo staff**) | `EmailThread`/`EmailMessage` alimentati da cron Gmail diretto | + `ReplyDraft`, sintesi, categoria, prossima azione; vista cliente limitata ai rivelati | W1 | Parziale (staff) / Assente (cliente) |
-| 7 | Modifica bozza, CC opzionale, conferma invio | invio diretto Gmail da `ThreadsPanel` | nessuna richiesta congelata, nessun blocco doppio clic | `SendRequest` (requestId univoco, CC) · `POST …/send-requests` · callback `POST /api/n8n/send-result` | W2 | Assente (va sostituito) |
+| 6 | Conversazioni dei fornitori che hanno risposto, con bozze | `/comunicazioni` (**solo staff**) | `EmailThread`/`EmailMessage` alimentati da cron Gmail diretto (da sostituire: fonte = Smartlead, account assegnato, via n8n) | + `ReplyDraft`, sintesi, categoria, prossima azione; vista cliente limitata ai rivelati | W1 | Parziale (staff) / Assente (cliente) |
+| 7 | Modifica bozza, CC opzionale, conferma invio | invio diretto Gmail da `ThreadsPanel` | nessuna richiesta congelata, nessun blocco doppio clic | `SendRequest` (requestId univoco, CC) · `POST …/send-requests` → n8n → risposta Smartlead nel thread · callback `POST /api/n8n/send-result` | W2 | Assente (va sostituito) |
 | 8 | Budget e confronto preventivi | `/offerte` (staff + `OfferteClienteView`) | `Offerta` con `versionNumber`, `FieldSource` | + stato indicativa/da verificare/confrontabile/non confrontabile, perimetro, `OffertaVersione` | W1 (estrazione) | Parziale |
 | 9 | Admin: CSV, selezione fornitori, campagne, correzioni, errori sync | `/dashboard/fornitori`, `/fornitori/import`, `/impostazioni` | importer con mappatura/dedup, directory 201 fornitori | + campagne Smartlead, riepilogo pre-avvio, `IntegrationEvent` con errori/tentativi | W4 | Parziale: import reale; campagne ed errori di sync assenti |
 
@@ -24,10 +24,10 @@ Stato alla data 2026-09-24, base `d57bb9c`. Legenda stato: **Reale** = funziona 
 | **Neon (TCP)** | connessione diretta porta 5432 | ❌ Non raggiungibile da questa sessione → migrazioni via integrazione Neon (D12) |
 | **Vercel** | progetto, deploy | ✅ Progetto `procurement-tradeshow` (Next.js, Node 24). Ultimi deploy **READY ma solo preview** dal branch `blissful-heisenberg`; `live: false` (nessun deploy di produzione). SSO protection attiva sui deploy. |
 | **Vercel (env vars)** | lettura Environment Variables | ❌ 403 "re-authenticate to scope ai-tradeshow-app": il token della sessione non può leggere né scrivere le env vars del team |
-| **n8n** | elenco workflow, credenziali, dettaglio di un workflow di test | ✅ Accesso OK. 25 workflow, **tutti di un altro progetto** ("X-CONTENT", "SKILL-…"): nessuno di Mirialis. Credenziali: Gmail (usata da X-CONTENT), Google Sheets/Drive, 2× Anthropic. **Nessuna credenziale OpenAI**, nessuna casella dedicata. |
+| **n8n** | elenco workflow, credenziali, ricerca nodi | ✅ Accesso OK. 25 workflow, **tutti di un altro progetto** ("X-CONTENT", "SKILL-…"): nessuno di Mirialis. Credenziali: Gmail (usata da X-CONTENT), Google Sheets/Drive, 2× Anthropic. **Nessuna credenziale OpenAI né Smartlead.** Nessun nodo Smartlead nativo → HTTP Request. |
 | **OpenAI** | `GET /v1/models` con la chiave | ⛔ Non verificabile: `api.openai.com` bloccato dalla policy di rete della sessione cloud. Script pronto: `scripts/verify-openai.mjs` |
-| **Smartlead** | documentazione API | ⛔ `api.smartlead.ai` bloccato; nessuna chiave. Capacità ricostruite da fonti pubbliche indirette (D9), da verificare |
-| **Casella email** | — | ⛔ Non fornita. Provider scelto: Gmail API via n8n (D8) |
+| **Smartlead** | documentazione API | ⛔ Bloccato dalla rete della sessione; nessuna chiave. Non è un ostacolo definitivo: Smartlead si chiama da n8n, che lo raggiunge (D8/D9) |
+| **Casella email** | — | Si collega **dentro Smartlead** come account email; n8n non la legge direttamente (D8) |
 
 ## 3. Cosa è simulato, cosa è verificato, cosa sarà manuale
 
@@ -35,10 +35,10 @@ Stato alla data 2026-09-24, base `d57bb9c`. Legenda stato: **Reale** = funziona 
 |---|---|
 | DB, login, ruoli, redazione fornitori non rivelati | **Verificato con servizio reale** (Neon) — test di isolamento completi in Fase 1 |
 | Import CSV fornitori | **Verificato con servizio reale** (201 righe importate in una sessione precedente) |
-| Invio RFQ tramite Smartlead | **Solo demo** (`SMARTLEAD_MODE=mock`) — client reale scritto, non verificato |
+| Invio RFQ tramite n8n → Smartlead | **Solo demo** (`SMARTLEAD_MODE=mock`) — ponte n8n scritto lato backend, workflow n8n non ancora creato |
 | Eventi inviato/risposta/bounce Smartlead | **Solo demo** (simulatore `simulateSendStep`, `simulateReply`) |
-| Lettura risposte dalla casella (n8n W1) | **Bloccato**: manca la casella dedicata e i workflow |
-| Invio risposta approvata nel thread con CC (n8n W2) | **Solo demo** (`MAILBOX_MODE=mock`, idempotenza/errore/esito ambiguo simulati) |
+| Conversazioni dall'account assegnato (Smartlead → n8n W1 → dashboard) | **Solo demo** (simulatore); reale bloccato da chiave Smartlead + workflow |
+| Invio risposta approvata nel thread con CC (n8n W2 → Smartlead) | **Solo demo** (`MAILBOX_MODE=mock`: idempotenza, errore, esito ambiguo, account sbagliato simulati) |
 | AI (timeline, RFQ, classificazione, estrazione) | **Bloccato in questo ambiente** (rete); chiave presente in `.env.local` |
 | Creazione campagna Smartlead via API | Da verificare; **piano B manuale**: admin crea la campagna in Smartlead e ne registra l'ID in Mirialis |
 | Promemoria al cliente (W3) | Assente |
