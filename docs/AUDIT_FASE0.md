@@ -26,8 +26,8 @@ Stato alla data 2026-09-24, base `d57bb9c`. Legenda stato: **Reale** = funziona 
 | **Vercel (env vars)** | lettura Environment Variables | ❌ 403 "re-authenticate to scope ai-tradeshow-app": il token della sessione non può leggere né scrivere le env vars del team |
 | **n8n** | elenco workflow, credenziali, ricerca nodi | ✅ Accesso OK. 25 workflow, **tutti di un altro progetto** ("X-CONTENT", "SKILL-…"): nessuno di Mirialis. Credenziali: Gmail (usata da X-CONTENT), Google Sheets/Drive, 2× Anthropic. **Nessuna credenziale OpenAI né Smartlead.** Nessun nodo Smartlead nativo → HTTP Request. |
 | **OpenAI** | `GET /v1/models` con la chiave | ⛔ Non verificabile: `api.openai.com` bloccato dalla policy di rete della sessione cloud. Script pronto: `scripts/verify-openai.mjs` |
-| **Smartlead** | documentazione API | ⛔ Bloccato dalla rete della sessione; nessuna chiave. Non è un ostacolo definitivo: Smartlead si chiama da n8n, che lo raggiunge (D8/D9) |
-| **Casella email** | — | Si collega **dentro Smartlead** come account email; n8n non la legge direttamente (D8) |
+| **Smartlead** | piano e documentazione | Piano **Basic, senza API** (confermato dall'utente). Campagne create a mano; eventi via webhook (disponibilità sul Basic da verificare) o, in mancanza, dalle caselle (D8/D9) |
+| **Caselle email** | — | 1–2 caselle dedicate per cliente, collegate sia a Smartlead (invio) sia a n8n (lettura e risposte) — D15 |
 
 ## 3. Cosa è simulato, cosa è verificato, cosa sarà manuale
 
@@ -35,12 +35,10 @@ Stato alla data 2026-09-24, base `d57bb9c`. Legenda stato: **Reale** = funziona 
 |---|---|
 | DB, login, ruoli, redazione fornitori non rivelati | **Verificato con servizio reale** (Neon) — test di isolamento completi in Fase 1 |
 | Import CSV fornitori | **Verificato con servizio reale** (201 righe importate in una sessione precedente) |
-| Invio RFQ tramite n8n → Smartlead | **Solo demo** (`SMARTLEAD_MODE=mock`) — ponte n8n scritto lato backend, workflow n8n non ancora creato |
-| Eventi inviato/risposta/bounce Smartlead | **Solo demo** (simulatore `simulateSendStep`, `simulateReply`) |
-| Conversazioni dall'account assegnato (Smartlead → n8n W1 → dashboard) | **Solo demo** (simulatore); reale bloccato da chiave Smartlead + workflow |
-| Invio risposta approvata nel thread con CC (n8n W2 → Smartlead) | **Solo demo** (`MAILBOX_MODE=mock`: idempotenza, errore, esito ambiguo, account sbagliato simulati) |
+| Invio RFQ tramite Smartlead | **Manuale** per l'admin (piano Basic): Mirialis esporta CSV + testo, l'admin crea e avvia la campagna, registra l'ID. In demo: simulato |
+| Eventi inviato/risposta/bounce e conversazioni (webhook Smartlead + caselle → n8n → dashboard) | **Solo demo** (simulatore); reale bloccato da caselle + workflow n8n |
+| Invio risposta approvata nel thread con CC (n8n W2 dalla casella del cliente) | **Solo demo** (`MAILBOX_MODE=mock`: idempotenza, errore, esito ambiguo, mittente sbagliato simulati) |
 | AI (timeline, RFQ, classificazione, estrazione) | **Bloccato in questo ambiente** (rete); chiave presente in `.env.local` |
-| Creazione campagna Smartlead via API | Da verificare; **piano B manuale**: admin crea la campagna in Smartlead e ne registra l'ID in Mirialis |
 | Promemoria al cliente (W3) | Assente |
 
 ## 4. Rischi trovati nell'audit

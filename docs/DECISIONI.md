@@ -1,7 +1,7 @@
 # Decisioni tecniche — Mirialis MVP
 
 Registro delle scelte. Ogni voce dice cosa è deciso, perché, e cosa resta da verificare.
-Aggiornato a: Fase 0, rivista dopo feedback su Smartlead/n8n (2026-09-24).
+Aggiornato a: Fase 0, rivista dopo feedback (Smartlead Basic senza API, 1–2 account per cliente) — 2026-09-24.
 
 ---
 
@@ -29,13 +29,14 @@ Si adattano le entità allo schema esistente (nomi italiani già in produzione) 
 | rfq_versions | `CapitolatoVersion` | stato "associata a campagna" = congelata, flag budget esplicito → Fase 2 |
 | suppliers | `Supplier` (globale Mirialis) + `Fornitore` (fornitore ↔ fiera) | — |
 | csv_imports | `SupplierImportBatch` | report errori per riga persistito → Fase 3 |
-| campaigns | `RFQCampaign` | `smartleadCampaignId`, **account email Smartlead assegnato**, stato → Fase 3 |
+| campaigns | `RFQCampaign` | `smartleadCampaignId` (registrato dall'admin), account del cliente usati, stato → Fase 3 |
 | campaign_recipients | nuova `CampaignRecipient` (sostituisce `RFQInvio`) | `smartleadLeadId`, stato osservato → Fase 3 |
-| threads / messages / attachments | `EmailThread` / `EmailMessage` / `EmailAttachment` | chiavi `messageId` (RFC), `statsId`, `emailAccountId`, stato allegato → Fase 4 |
+| threads / messages / attachments | `EmailThread` / `EmailMessage` / `EmailAttachment` | chiave `messageId` (RFC), `accountEmail`, `leadId`, stato allegato → Fase 4 |
 | reply_drafts | nuova `ReplyDraft` | Fase 4 |
 | send_requests | nuova `SendRequest` (con CC, `requestId` univoco) | Fase 6 |
 | offers / offer_versions | `Offerta` (+ nuova `OffertaVersione` per lo storico) | Fase 5 |
 | notifications | nuova `Notification` (chiave univoca di dedup) | Fase 4 |
+| account email del cliente | nuova `ClientMailbox` (max 2 per organizzazione, nome credenziale n8n) | Fase 1 |
 | integration_events | nuova `IntegrationEvent` (`source`+`externalId` univoci, tentativi, errore) | Fase 4 |
 
 ## D3 — Ruoli
@@ -51,10 +52,9 @@ Il codice attuale invia RFQ e risposte **direttamente da Gmail** (`src/lib/gmail
 `/api/pratiche/[id]/comunicazioni/[threadId]/invia`) e legge la posta con un cron Vercel (`/api/cron/email-poll`).
 Questo contraddice l'architettura richiesta:
 
-- **Tutto il traffico email passa da Smartlead, e Smartlead è raggiungibile solo da n8n** (vedi D8/D9).
-- Invio iniziale RFQ, lettura delle conversazioni e invio delle risposte approvate: backend → n8n → Smartlead, sempre dall'account
-  email assegnato alla campagna (connettori `src/lib/connectors/smartlead` e `src/lib/connectors/reply`).
-- Il backend non tocca più né la casella né Smartlead direttamente.
+- **Invio iniziale RFQ → Smartlead** (campagna creata a mano dall'admin: piano Basic senza API, vedi D8).
+- **Eventi e conversazioni → webhook Smartlead e caselle del cliente, raccolti da n8n**; **risposte approvate → n8n dalla casella del cliente**.
+- Il backend non tocca più né le caselle né Smartlead direttamente: parla solo con n8n.
 
 Fino alla sostituzione (Fasi 3–6) il vecchio percorso resta protetto da `EMAIL_MODE=sandbox` (default: blocca ogni destinatario
 fuori `EMAIL_TEST_ALLOWLIST`). Nessuna credenziale Gmail è configurata nell'app, quindi oggi non può partire nulla.
@@ -63,8 +63,8 @@ fuori `EMAIL_TEST_ALLOWLIST`). Nessuna credenziale Gmail è configurata nell'app
 
 `SMARTLEAD_MODE` (campagne) e `MAILBOX_MODE` (risposte dalla dashboard) = `mock | test | live` (`src/lib/connectors/mode.ts`).
 
-- `mock` (default, anche per valori non riconosciuti): simulatore in-process di "n8n + Smartlead", nessuna rete, nessuna email.
-- `test`: n8n + Smartlead reali, ma solo destinatari in `TEST_RECIPIENT_ALLOWLIST` (To **e** CC; per le campagne sia al caricamento lead sia all'avvio).
+- `mock` (default, anche per valori non riconosciuti): simulatore in-process di Smartlead + caselle + n8n, nessuna rete, nessuna email.
+- `test`: servizi reali, ma solo destinatari in `TEST_RECIPIENT_ALLOWLIST` (To **e** CC delle risposte; per le campagne l'export CSV contiene solo quegli indirizzi).
 - `live`: richiede anche `ALLOW_LIVE_SEND=true`; la conferma esplicita dell'admin nell'app sarà un controllo aggiuntivo lato route (Fase 3/6).
 - I guard stanno nei factory `getSmartlead()` / `getReplyBridge()`, sopra qualunque implementazione: il codice applicativo non può aggirarli.
 
@@ -87,44 +87,46 @@ Il codice esistente ricade automaticamente su Anthropic se OpenAI fallisce. La s
 "errore AI → stato recuperabile, mai dato inventato". **Decisione: fallback automatico disattivato di default** (Fase 2): un errore
 OpenAI produce uno stato "Da verificare/Errore AI" visibile all'admin, non una risposta di un altro modello con garanzie di schema diverse.
 
-## D8 — Smartlead su n8n, conversazioni dall'account assegnato (rivisto dopo feedback)
+## D8 — Smartlead Basic (senza API): Smartlead invia, n8n osserva e risponde (rivisto 2×)
 
-**Architettura corretta:**
+L'account Smartlead è **Basic: niente API**. Quindi Mirialis non comanda Smartlead, lo **osserva**:
 
 ```
-Dashboard (Vercel) ⇄ backend ⇄ [HMAC] ⇄ n8n ⇄ [HTTP, chiave in credenziale n8n] ⇄ Smartlead ⇄ casella (account assegnato)
+                 (manuale, admin)                      webhook
+Mirialis ──export CSV──▶ Smartlead ──invio RFQ──▶ fornitori ──risposta──▶ casella del cliente
+   ▲                        │ EMAIL_SENT / EMAIL_REPLY / bounce / unsub          │
+   │                        ▼                                                    │ lettura (recupero risposte perse)
+   └──[HMAC]── backend ◀── n8n ◀─────────────────────────────────────────────────┘
+                              └──▶ risposta approvata: invio dalla casella del cliente, stesso thread
 ```
 
-- **Smartlead vive dietro n8n.** Il backend non ha la chiave Smartlead e non lo chiama mai. In n8n non esiste un nodo Smartlead
-  nativo (verificato con la ricerca nodi): si usano nodi *HTTP Request* con una credenziale n8n che passa `api_key` in query.
-- **Account email assegnato**: ogni campagna Mirialis ha un account email Smartlead assegnato (`emailAccountId`). La RFQ parte da lì,
-  le risposte dei fornitori arrivano lì, le risposte approvate partono da lì.
-- **Le conversazioni in dashboard sono le email scambiate con quell'account**: n8n le prende da Smartlead (webhook `EMAIL_REPLY` +
-  cronologia messaggi del lead, `message-history`) filtrando su campagna + account assegnato, e le salva nel backend. Nessuna lettura
-  diretta della casella (niente Gmail API, niente credenziale Gmail in n8n): la casella è collegata **dentro Smartlead**.
-- **Thread**: si risponde con l'endpoint Smartlead di risposta nel thread (master inbox), che vuole l'id dell'invio a cui si risponde
-  (`stats_id`) e mantiene lo stesso thread lato casella. Il backend conserva per ogni messaggio `messageId` (Message-ID RFC 5322, chiave
-  di deduplica), `statsId`, `emailAccountId`, `leadId`, `campaignId`.
-- **CC**: da verificare sull'endpoint di risposta Smartlead con l'account reale (Fase 6). Finché non verificata, la CC resta disabilitata in UI
-  con il limite spiegato.
+1. **Campagna — passo manuale dell'admin, dichiarato come tale in UI.** Mirialis prepara tutto (RFQ approvata e congelata,
+   fornitori selezionati, riepilogo pre-avvio) ed **esporta il CSV dei lead** con la colonna `mirialis_recipient_id`. L'admin in
+   Smartlead crea la campagna, assegna gli account del cliente, carica il CSV, incolla il testo, imposta il webhook e avvia;
+   poi registra in Mirialis l'ID campagna. In modalità test l'export contiene **solo** indirizzi in `TEST_RECIPIENT_ALLOWLIST`.
+2. **Eventi — webhook Smartlead → n8n → backend.** `EMAIL_SENT` (unica fonte di "contattato"), `EMAIL_REPLY` (testo, Message-ID,
+   account), bounce, `LEAD_UNSUBSCRIBED`. n8n inoltra al backend con firma HMAC. Il webhook di Smartlead punta a un URL n8n con percorso segreto.
+3. **Conversazioni in dashboard = email scambiate con gli account del cliente**, filtrate per campagna registrata.
+4. **Risposta dalla dashboard — n8n invia dalla casella del cliente** (nodo Gmail o SMTP, credenziale per casella) con
+   `In-Reply-To`/`References` = Message-ID del fornitore e oggetto `Re: …`: resta nel thread lato fornitore, dallo stesso account che lo
+   ha contattato. Header `X-Mirialis-Request-Id` per ritrovarla negli Inviati su esito ambiguo.
+5. **Recupero di risposte perse / riconciliazione** (Workflow 4): n8n legge anche la casella del cliente (trigger Gmail/IMAP) e passa
+   al backend i messaggi dei thread noti; deduplica per **Message-ID** con quelli arrivati da webhook. Senza API non si può interrogare
+   Smartlead a posteriori: la casella è la seconda fonte.
 
-## D9 — Operazioni Smartlead e cosa è verificato
+Deduplica: chiave `Message-ID` RFC 5322 per ogni messaggio, `eventId` stabile per ogni evento (`sent:<msgid>`, `reply:<msgid>`,
+`bounce:<campagna>:<lead>`), vincoli univoci in DB.
 
-Workflow n8n "Smartlead bridge" (un webhook firmato, switch su `op`): `listEmailAccounts`, `createCampaign(name, emailAccountId)`,
-`saveSequence`, `addLeads` (con `custom_fields.mirialis_recipient_id`), `setStatus` (START/PAUSED/STOPPED), `listCampaignLeads`,
-`getMessageHistory`. Più: Workflow 1 (webhook Smartlead → backend), Workflow 2 (invio risposta), Workflow 4 (riconciliazione).
+## D9 — Cosa va verificato sul piano Basic
 
-- Endpoint Smartlead previsti (base `https://server.smartlead.ai/api/v1`, `api_key` in query, ~10 req/2 s): creazione campagna, sequenza,
-  associazione account, caricamento lead, stato campagna, elenco lead con stato, cronologia messaggi del lead, risposta nel thread,
-  webhook `EMAIL_SENT` / `EMAIL_REPLY` / `LEAD_UNSUBSCRIBED` / bounce.
-- **Non verificato**: servono `SMARTLEAD_API_KEY` (da mettere **solo** come credenziale in n8n) e conferma del piano (API + webhook).
-  Vantaggio di questa architettura: n8n raggiunge Smartlead anche se la rete di questa sessione cloud lo blocca, quindi le prove si
-  possono fare eseguendo i workflow n8n da qui.
-- Piano B se un'operazione non è disponibile via API: passaggio admin esplicito ("crea in Smartlead → incolla l'ID in Mirialis"),
-  etichettato come manuale in UI.
-- "Contattato" = solo dopo evento `EMAIL_SENT` osservato (webhook o riconciliazione). Caricare un lead non è inviare.
-- Idempotenza risposte: n8n registra il `requestId` prima di chiamare Smartlead; su esito ambiguo controlla la cronologia del lead prima
-  di qualunque nuovo tentativo (dettaglio in Fase 6).
+- **Webhook sul piano Basic**: non verificabile da qui (documentazione Smartlead bloccata dalla rete della sessione). Verifica rapida:
+  in Smartlead → campagna → impostazioni/integrazioni → *Webhooks*: se si può salvare un URL, ci siamo.
+- **Se i webhook NON sono disponibili sul Basic**, il sistema funziona lo stesso leggendo solo le caselle: Smartlead invia dalla casella
+  del cliente, quindi le RFQ inviate compaiono negli **Inviati** e le risposte in **Posta in arrivo**. n8n ricava "contattato" dagli
+  Inviati e le risposte dall'arrivo. Perdiamo solo bounce/disiscrizioni strutturati (i bounce restano visibili come email di ritorno).
+- Formato esatto dei payload webhook (campi Message-ID, account, testo risposta): da registrare al primo evento reale di test.
+- Invio con CC dalla casella: da verificare in Fase 6 (nodo Gmail: campo CC; SMTP: header Cc). Finché non verificata, CC disabilitata in UI.
+- Con un piano Pro in futuro (API): creazione campagna e caricamento lead potrebbero diventare automatici; il resto non cambia.
 
 ## D10 — Job periodici: n8n, non Vercel Cron
 
@@ -155,3 +157,12 @@ limiti su tipo (PDF, immagini, CSV/XLSX dove serve) e dimensione. I 2 blob esist
 
 Dati demo separati: organizzazione con flag demo (esiste già "Acme Industries (demo)"), connettori in `mock`, banner in UI su ogni
 schermata che usa dati simulati. Nessuna funzione simulata viene chiamata "integrata".
+
+## D15 — Account email per cliente
+
+- Ogni cliente ha **1 o 2 account email dedicati**, creati ad hoc, che gestiscono la sua campagna di contatto. Vincolo nel DB
+  (massimo 2 per organizzazione) e verificato lato server.
+- Ogni fornitore è contattato da **un** account (Smartlead ruota tra i due): il thread resta su quell'account e la risposta dalla
+  dashboard parte sempre da lì (il backend rifiuta un mittente diverso).
+- Le credenziali delle caselle stanno **solo in n8n** (una credenziale per casella). In Mirialis si registrano solo indirizzo, cliente
+  e nome della credenziale n8n.

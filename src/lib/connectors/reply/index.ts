@@ -15,9 +15,9 @@ const mockBridge: ReplyBridge = {
   },
 };
 
-// test/live: Workflow 2 di n8n. STATO: non ancora collaudato con n8n + Smartlead reali (Fase 6).
-// Come n8n riconosce una risposta già inviata (idempotenza lato Smartlead) è da definire in
-// Fase 6: requestId salvato in n8n prima dell'invio + confronto con la cronologia del lead.
+// test/live: Workflow 2 di n8n, che invia dalla casella del cliente (nodo Gmail/SMTP) con
+// In-Reply-To/References e un header X-Mirialis-Request-Id per ritrovare il messaggio negli
+// Inviati su esito ambiguo. STATO: non ancora collaudato con una casella reale (Fase 6).
 function n8nBridge(mode: "test" | "live"): ReplyBridge {
   return {
     mode,
