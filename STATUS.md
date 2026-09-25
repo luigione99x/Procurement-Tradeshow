@@ -53,6 +53,14 @@ le risposte (D6).
 ### Criterio di uscita
 *"Due organizzazioni non leggono i dati l'una dell'altra; un Cliente non può enumerare né esportare i non rispondenti via API"* → ✅ (test in `src/lib/access.test.ts`).
 
+### Correzione 25/09 — errore sulla pagina Fiere
+- Sintomo: "Application error" dopo il login su `/fairs`. Causa (log Vercel): una funzione passata da un Server Component al form
+  client (`transform`), vietato da Next.js; build e test unitari non renderizzano le pagine e non l'hanno visto.
+- Fix: conversione euro→centesimi dentro il form (`data-type="cents"`), nessuna prop funzione. Le pagine ora reindirizzano al login
+  invece di lanciare errori quando manca la sessione.
+- **Nuova prova `npm run smoke`**: build di produzione + avvio su Postgres locale (PGlite) + apertura di ogni pagina da admin,
+  cliente e anonimo; fallisce su qualunque errore server. Verificato che, reintroducendo il bug, la prova fallisce.
+
 ### Aperti
 - Cambio password e reset: Fase 2.
 - Limitazione tentativi di login (rate limit): da aggiungere prima dell'uso con clienti reali.

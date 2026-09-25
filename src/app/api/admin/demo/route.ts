@@ -8,7 +8,7 @@ import { requireActor } from "@/lib/auth/session";
 export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
-    return NextResponse.json(await seedDemo(getDb(), await requireActor()));
+    return NextResponse.json(await seedDemo(await getDb(), await requireActor()));
   } catch (err) {
     return apiError(err);
   }

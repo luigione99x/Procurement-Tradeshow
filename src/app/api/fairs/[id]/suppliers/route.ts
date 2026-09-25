@@ -7,7 +7,7 @@ import { requireActor } from "@/lib/auth/session";
 // Solo i fornitori che hanno risposto. Non esiste un endpoint cliente con l'elenco completo.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    return NextResponse.json({ suppliers: await respondedSuppliers(getDb(), await requireActor(), (await params).id) });
+    return NextResponse.json({ suppliers: await respondedSuppliers(await getDb(), await requireActor(), (await params).id) });
   } catch (err) {
     return apiError(err);
   }

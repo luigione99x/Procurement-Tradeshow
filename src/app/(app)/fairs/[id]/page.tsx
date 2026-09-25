@@ -1,14 +1,14 @@
 import { getDb } from "@/db/client";
 import { allRecipientsForAdmin, campaignProgress, getFair, respondedSuppliers } from "@/lib/access";
-import { requireActor } from "@/lib/auth/session";
+import { requirePageActor } from "@/lib/auth/session";
 import { HttpError } from "@/lib/errors";
 import { notFound } from "next/navigation";
 
 const euro = (cents: number | null) => (cents == null ? "—" : (cents / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
 
 export default async function FairPage({ params }: { params: Promise<{ id: string }> }) {
-  const actor = await requireActor();
-  const db = getDb();
+  const actor = await requirePageActor();
+  const db = await getDb();
   const { id } = await params;
   const fair = await getFair(db, actor, id).catch((e) => (e instanceof HttpError && e.status === 404 ? null : Promise.reject(e)));
   if (!fair) notFound();

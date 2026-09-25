@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
     const { email, password } = z.object({ email: z.string().min(3), password: z.string().min(1) }).parse(await req.json());
-    const user = await authenticate(getDb(), email, password);
+    const user = await authenticate(await getDb(), email, password);
     if (!user) throw new HttpError(401, "Email o password non corrette");
     await startSession(user.id);
     return NextResponse.json({ ok: true, role: user.role });

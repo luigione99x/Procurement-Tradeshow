@@ -3,19 +3,17 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 // Form generico: invia i campi come JSON all'endpoint e aggiorna la pagina.
-// I numeri (data-type="number") e i campi vuoti sono normalizzati prima dell'invio.
+// Normalizzazione prima dell'invio: campi vuoti omessi, data-type="number" → numero,
+// data-type="cents" → importo in euro convertito in centesimi interi.
+// Nessuna prop funzione: il form è usato da Server Component, che non possono passarne.
 export function JsonForm({
   action,
   children,
   submitLabel,
-  transform,
-  onDone,
 }: {
   action: string;
   children: React.ReactNode;
   submitLabel: string;
-  transform?: (data: Record<string, unknown>) => Record<string, unknown>;
-  onDone?: (body: any) => void;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -30,12 +28,15 @@ export function JsonForm({
     for (const el of Array.from(formEl.elements) as HTMLInputElement[]) {
       if (!el.name) continue;
       if (el.type === "checkbox") data[el.name] = el.checked;
-      else if (el.value.trim() !== "") data[el.name] = el.dataset.type === "number" ? Number(el.value) : el.value.trim();
+      else if (el.value.trim() === "") continue;
+      else if (el.dataset.type === "number") data[el.name] = Number(el.value);
+      else if (el.dataset.type === "cents") data[el.name] = Math.round(Number(el.value) * 100);
+      else data[el.name] = el.value.trim();
     }
     const res = await fetch(action, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(transform ? transform(data) : data),
+      body: JSON.stringify(data),
     });
     const body = await res.json().catch(() => ({}));
     setBusy(false);
@@ -44,7 +45,6 @@ export function JsonForm({
       return;
     }
     formEl.reset();
-    onDone?.(body);
     router.refresh();
   }
 

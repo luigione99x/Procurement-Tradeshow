@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
 import { users } from "@/db/schema";
 import type { Actor } from "../access";
@@ -25,7 +26,7 @@ export async function endSession() {
 export async function currentUser() {
   const userId = await readSession((await cookies()).get(SESSION_COOKIE)?.value);
   if (!userId) return null;
-  const [u] = await getDb()
+  const [u] = await (await getDb())
     .select({ id: users.id, organizationId: users.organizationId, role: users.role, name: users.name, email: users.email })
     .from(users)
     .where(eq(users.id, userId));
@@ -35,5 +36,13 @@ export async function currentUser() {
 export async function requireActor(): Promise<Actor & { name: string; email: string }> {
   const u = await currentUser();
   if (!u) throw new HttpError(401, "Non autenticato");
+  return u;
+}
+
+// Per le pagine (Server Component): senza sessione si va al login invece di lanciare un
+// errore. Layout e pagina sono renderizzati in parallelo, quindi anche la pagina deve farlo.
+export async function requirePageActor(): Promise<Actor & { name: string; email: string }> {
+  const u = await currentUser();
+  if (!u) redirect("/login");
   return u;
 }

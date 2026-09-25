@@ -10,7 +10,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed:demo": "echo usa il pulsante in Admin"
+    "db:seed:demo": "echo usa il pulsante in Admin",
+    "smoke": "bash scripts/smoke-pages.sh"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

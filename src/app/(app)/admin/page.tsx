@@ -4,12 +4,12 @@ import { JsonForm } from "@/components/JsonForm";
 import { LegacyBlobsButton } from "@/components/LegacyBlobsButton";
 import { notFound } from "next/navigation";
 import { listOrganizations } from "@/lib/access";
-import { requireActor } from "@/lib/auth/session";
+import { requirePageActor } from "@/lib/auth/session";
 
 export default async function AdminPage() {
-  const actor = await requireActor();
+  const actor = await requirePageActor();
   if (actor.role !== "admin") notFound(); // il cliente non sa nemmeno che la pagina esiste
-  const orgs = await listOrganizations(getDb(), actor);
+  const orgs = await listOrganizations(await getDb(), actor);
   const clients = orgs.filter((o) => o.kind === "client");
 
   return (

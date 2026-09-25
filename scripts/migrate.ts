@@ -3,9 +3,16 @@ import { Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { migrate } from "drizzle-orm/neon-serverless/migrator";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL non configurata");
-const pool = new Pool({ connectionString: url });
-await migrate(drizzle(pool), { migrationsFolder: "drizzle" });
-await pool.end();
-console.log("Migrazioni applicate.");
+async function main() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL non configurata");
+  const pool = new Pool({ connectionString: url });
+  await migrate(drizzle(pool), { migrationsFolder: "drizzle" });
+  await pool.end();
+  console.log("Migrazioni applicate.");
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

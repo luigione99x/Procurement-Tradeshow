@@ -6,7 +6,7 @@ import { requireActor } from "@/lib/auth/session";
 
 export async function GET() {
   try {
-    return NextResponse.json({ organizations: await listOrganizations(getDb(), await requireActor()) });
+    return NextResponse.json({ organizations: await listOrganizations(await getDb(), await requireActor()) });
   } catch (err) {
     return apiError(err);
   }
@@ -15,7 +15,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
-    return NextResponse.json({ organization: await createClientOrganization(getDb(), await requireActor(), await req.json()) }, { status: 201 });
+    return NextResponse.json({ organization: await createClientOrganization(await getDb(), await requireActor(), await req.json()) }, { status: 201 });
   } catch (err) {
     return apiError(err);
   }
