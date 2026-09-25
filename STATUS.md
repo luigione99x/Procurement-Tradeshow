@@ -66,10 +66,28 @@ le risposte (D6).
 - Limitazione tentativi di login (rate limit): da aggiungere prima dell'uso con clienti reali.
 - Variabili Vercel vecchie non più usate (`SERPER_API_KEY`, `CRON_SECRET`, `OPENAI_MODEL`, `DIRECT_URL`): innocue, da rimuovere.
 
+## Giro email via Gmail + n8n ✅ lato dashboard (25/09) — in attesa della Gmail
+
+Nuova impostazione (sostituisce Smartlead): **una Gmail per cliente**, n8n la usa per inviare e leggere.
+
+- **Rubrica fornitori** (Admin → Rubrica): incolli la lista, report righe non valide/duplicate.
+- **Bozza richiesta stand** statica compilata con i dati della fiera, modificabile; all'OK viene congelata (versioni).
+- **OK admin → campagna in coda**: n8n chiede ogni 10 min "prossima email?"; la dashboard concede max 1 ogni 10 min,
+  20/giorno per casella, lun–ven 9–18. In modalità **test** partono solo verso `TEST_RECIPIENT_ALLOWLIST`.
+- **Risposte**: n8n manda ogni email in arrivo; agganciata al thread Gmail, deduplicata, analizzata da OpenAI
+  (categoria, sintesi, prezzo) con **bozza di risposta**; errore AI → "da verificare", bozza vuota.
+- **Risposta dalla dashboard**: modifica + CC + Invia (una sola volta) → n8n risponde nello stesso thread.
+- **Workflow n8n**: generatore `n8n/build_workflows.py` + esportazioni senza segreti + `n8n/README.md`.
+  Da creare in n8n appena c'è la Gmail (serve l'indirizzo per legarli alla casella).
+
+Prove: 28 test (ritmo, limite 20/giorno, finestra oraria, allowlist, presa in carico unica, duplicati, errore AI,
+doppio clic, esiti ripetuti), `npm run smoke` su tutte le pagine, e **dal vivo** sul deploy: chiamata n8n senza firma
+→ 401, firma valida → accettata, corpo alterato → 401, timestamp vecchio → 401; pagine Fiere/Admin/Rubrica 200 con
+banner "Modalità test".
+
 ## Cosa serve dall'utente
-- Nulla per la Fase 2.
-- *(dalla Fase 3)* esito controllo **Webhooks** su Smartlead (piano Basic) e **1 casella Gmail** per il cliente di prova, collegata
-  a Smartlead e a n8n.
+- **1 Gmail per il cliente di prova** + credenziale **Gmail OAuth2** in n8n con quella Gmail (nome credenziale).
+- La **lista fornitori** da incollare in Admin → Rubrica (per il test partono email solo verso l'allowlist).
 
 ## Prossima fase — Fase 2 (Event Manager e RFQ)
 Documenti privati + estrazione testo per pagina, timeline AI con documento/pagina e date "da confermare", modifiche manuali protette,
