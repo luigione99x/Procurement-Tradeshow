@@ -64,6 +64,9 @@ export const clientMailboxes = pgTable(
     slot: smallint("slot").notNull(),
     email: text("email").notNull(),
     n8nCredentialName: text("n8n_credential_name"),
+    // webhook del workflow n8n "Invia risposta" di questa casella: la dashboard lo chiama dopo "Invia"
+    // per spedire subito (senza aspettare il giro periodico). Contiene solo un requestId, nessun dato.
+    n8nReplyWebhookUrl: text("n8n_reply_webhook_url"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -96,20 +99,41 @@ export const fairs = pgTable(
   (t) => [index("fairs_org_idx").on(t.organizationId)]
 );
 
-// Fornitori noti a Mirialis. Non si importano liste: l'outbound si fa da Smartlead e un
-// fornitore entra qui quando compare in un evento di campagna (inviato/risposta).
+// Rubrica fornitori di Mirialis ("la solita lista"): ogni campagna la usa come destinatari.
 export const suppliers = pgTable(
   "suppliers",
   {
     id: id(),
     email: text("email").notNull(),
     companyName: text("company_name"),
+    active: boolean("active").notNull().default(true),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("suppliers_email_uq").on(sql`lower(${t.email})`)]
 );
 
-export const campaignStatus = pgEnum("campaign_status", ["draft", "registered", "active", "paused", "closed"]);
+export const rfqStatus = pgEnum("rfq_status", ["draft", "approved"]);
+
+// Bozza della richiesta stand, versionata. Una versione approvata è congelata: è il testo
+// che i fornitori ricevono. Modifiche successive creano una nuova versione.
+export const rfqVersions = pgTable(
+  "rfq_versions",
+  {
+    id: id(),
+    fairId: uuid("fair_id")
+      .notNull()
+      .references(() => fairs.id),
+    version: integer("version").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    status: rfqStatus("status").notNull().default("draft"),
+    createdAt: createdAt(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("rfq_versions_fair_version_uq").on(t.fairId, t.version)]
+);
+
+export const campaignStatus = pgEnum("campaign_status", ["active", "paused", "completed"]);
 
 export const campaigns = pgTable(
   "campaigns",
@@ -121,18 +145,22 @@ export const campaigns = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id),
-    // ID della campagna creata a mano in Smartlead, registrato dall'admin (piano Basic, D8)
-    smartleadCampaignId: text("smartlead_campaign_id"),
-    status: campaignStatus("status").notNull().default("draft"),
+    rfqVersionId: uuid("rfq_version_id")
+      .notNull()
+      .references(() => rfqVersions.id),
+    mailboxId: uuid("mailbox_id")
+      .notNull()
+      .references(() => clientMailboxes.id), // Gmail del cliente da cui partono le email
+    status: campaignStatus("status").notNull().default("active"),
+    dailyLimit: integer("daily_limit").notNull().default(20),
+    intervalMinutes: integer("interval_minutes").notNull().default(10),
+    approvedBy: uuid("approved_by").references(() => users.id),
     createdAt: createdAt(),
   },
-  (t) => [
-    uniqueIndex("campaigns_smartlead_uq").on(t.smartleadCampaignId),
-    index("campaigns_fair_idx").on(t.fairId),
-  ]
+  (t) => [index("campaigns_fair_idx").on(t.fairId), uniqueIndex("campaigns_fair_uq").on(t.fairId)]
 );
 
-export const recipientStatus = pgEnum("recipient_status", ["queued", "sent", "bounced", "replied", "unsubscribed"]);
+export const recipientStatus = pgEnum("recipient_status", ["queued", "sending", "sent", "failed", "replied"]);
 
 export const campaignRecipients = pgTable(
   "campaign_recipients",
@@ -144,23 +172,87 @@ export const campaignRecipients = pgTable(
     supplierId: uuid("supplier_id")
       .notNull()
       .references(() => suppliers.id),
-    mailboxId: uuid("mailbox_id").references(() => clientMailboxes.id), // casella che gestisce il thread
-    smartleadLeadId: text("smartlead_lead_id"),
+    position: integer("position").notNull(), // ordine di invio
     status: recipientStatus("status").notNull().default("queued"),
-    firstSentAt: timestamp("first_sent_at", { withTimezone: true }), // solo da EMAIL_SENT osservato
+    claimedAt: timestamp("claimed_at", { withTimezone: true }), // preso in carico da n8n
+    firstSentAt: timestamp("first_sent_at", { withTimezone: true }), // solo su conferma di invio da n8n
     firstReplyAt: timestamp("first_reply_at", { withTimezone: true }),
+    gmailThreadId: text("gmail_thread_id"), // collega le risposte del fornitore a questo destinatario
+    gmailMessageId: text("gmail_message_id"),
     interested: boolean("interested"),
     quoteReceived: boolean("quote_received").notNull().default(false),
+    lastError: text("last_error"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("campaign_recipients_uq").on(t.campaignId, t.supplierId)]
+  (t) => [
+    uniqueIndex("campaign_recipients_uq").on(t.campaignId, t.supplierId),
+    uniqueIndex("campaign_recipients_thread_uq").on(t.gmailThreadId),
+    index("campaign_recipients_status_idx").on(t.status),
+  ]
 );
 
-export const eventSource = pgEnum("event_source", ["smartlead", "mailbox", "n8n", "app"]);
+export const messageDirection = pgEnum("message_direction", ["inbound", "outbound"]);
+
+// Email del thread con un fornitore. gmail_message_id univoco = la stessa email ricevuta due
+// volte (retry di n8n) produce un solo record.
+export const messages = pgTable(
+  "messages",
+  {
+    id: id(),
+    recipientId: uuid("recipient_id")
+      .notNull()
+      .references(() => campaignRecipients.id),
+    direction: messageDirection("direction").notNull(),
+    gmailMessageId: text("gmail_message_id").notNull(),
+    fromAddress: text("from_address"),
+    toAddress: text("to_address"),
+    cc: text("cc"),
+    subject: text("subject"),
+    bodyText: text("body_text"),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    aiCategory: text("ai_category"), // interessato | chiede_chiarimenti | preventivo | non_disponibile | risposta_automatica | da_verificare
+    aiSummary: text("ai_summary"),
+    aiPriceCents: bigint("ai_price_cents", { mode: "number" }),
+    aiError: text("ai_error"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("messages_gmail_uq").on(t.gmailMessageId), index("messages_recipient_idx").on(t.recipientId)]
+);
+
+export const replyStatus = pgEnum("reply_status", ["draft", "approved", "sending", "sent", "failed"]);
+
+// Bozza di risposta (AI o manuale). Non parte mai da sola: serve "Invia" (draft → approved).
+// request_id è la chiave di idempotenza verso n8n: una approvazione = al massimo una email.
+export const replyDrafts = pgTable(
+  "reply_drafts",
+  {
+    id: id(),
+    recipientId: uuid("recipient_id")
+      .notNull()
+      .references(() => campaignRecipients.id),
+    inReplyToMessageId: uuid("in_reply_to_message_id")
+      .notNull()
+      .references(() => messages.id),
+    requestId: uuid("request_id").notNull().defaultRandom(),
+    body: text("body").notNull().default(""),
+    cc: text("cc"),
+    status: replyStatus("status").notNull().default("draft"),
+    aiGenerated: boolean("ai_generated").notNull().default(false),
+    lastError: text("last_error"),
+    sentGmailMessageId: text("sent_gmail_message_id"),
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("reply_drafts_request_uq").on(t.requestId), uniqueIndex("reply_drafts_message_uq").on(t.inReplyToMessageId)]
+);
+
+export const eventSource = pgEnum("event_source", ["n8n", "app"]);
 export const eventStatus = pgEnum("event_status", ["received", "processed", "failed", "ignored"]);
 
-// Registro di ogni evento esterno: (source, external_id) univoco = idempotenza.
-// Lo stesso webhook ricevuto due volte non produce due effetti.
+// Registro di ogni evento esterno (n8n): (source, external_id) univoco = idempotenza.
+// Le email arrivate che non appartengono a nessun thread noto finiscono qui come "ignored".
 export const integrationEvents = pgTable(
   "integration_events",
   {
@@ -171,13 +263,8 @@ export const integrationEvents = pgTable(
     organizationId: uuid("organization_id").references(() => organizations.id),
     payload: jsonb("payload").notNull(),
     status: eventStatus("status").notNull().default("received"),
-    attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
     createdAt: createdAt(),
-    processedAt: timestamp("processed_at", { withTimezone: true }),
   },
-  (t) => [
-    uniqueIndex("integration_events_source_ext_uq").on(t.source, t.externalId),
-    index("integration_events_status_idx").on(t.status),
-  ]
+  (t) => [uniqueIndex("integration_events_source_ext_uq").on(t.source, t.externalId)]
 );

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/client";
-import { campaignRecipients, campaigns, organizations, suppliers } from "@/db/schema";
+import { campaignRecipients, campaigns, clientMailboxes, organizations, rfqVersions, suppliers } from "@/db/schema";
 import { createTestDb } from "@/test/db";
 import {
   type Actor,
@@ -25,6 +25,7 @@ let clientB: Actor;
 let fairA: string;
 let fairB: string;
 let orgA: string;
+let orgB: string;
 
 async function status(p: Promise<unknown>) {
   try {
@@ -40,11 +41,14 @@ async function status(p: Promise<unknown>) {
 beforeAll(async () => {
   db = await createTestDb();
   const [mirialis] = await db.insert(organizations).values({ name: "Mirialis", kind: "mirialis" }).returning();
-  admin = { id: "bootstrap", organizationId: mirialis.id, role: "admin" };
+  const bootstrap: Actor = { id: "bootstrap", organizationId: mirialis.id, role: "admin" };
+  const au = await createUser(db, bootstrap, { organizationId: mirialis.id, email: "admin@mirialis.it", name: "Admin", password: "password-admin-x", role: "admin" });
+  admin = { id: au.id, organizationId: mirialis.id, role: "admin" };
 
   const a = await createClientOrganization(db, admin, { name: "Cliente A" });
   const b = await createClientOrganization(db, admin, { name: "Cliente B" });
   orgA = a.id;
+  orgB = b.id;
   const ua = await createUser(db, admin, { organizationId: a.id, email: "a@cliente-a.it", name: "Anna", password: "password-lunga-a", role: "client" });
   const ub = await createUser(db, admin, { organizationId: b.id, email: "b@cliente-b.it", name: "Bruno", password: "password-lunga-b", role: "client" });
   clientA = { id: ua.id, organizationId: a.id, role: "client" };
@@ -54,7 +58,9 @@ beforeAll(async () => {
   fairB = (await createFair(db, admin, { organizationId: b.id, name: "Fiera B" })).id;
 
   // Campagna della fiera A: 4 fornitori caricati, 3 contattati davvero, 2 risposte, 1 preventivo.
-  const [camp] = await db.insert(campaigns).values({ fairId: fairA, organizationId: a.id, status: "active" }).returning();
+  const [boxA] = await db.insert(clientMailboxes).values({ organizationId: a.id, slot: 1, email: "rfq@cliente-a.it" }).returning();
+  const [rfqA] = await db.insert(rfqVersions).values({ fairId: fairA, version: 1, subject: "RFQ", body: "Testo della richiesta", status: "approved" }).returning();
+  const [camp] = await db.insert(campaigns).values({ fairId: fairA, organizationId: a.id, rfqVersionId: rfqA.id, mailboxId: boxA.id }).returning();
   const sup = await db
     .insert(suppliers)
     .values([
@@ -66,10 +72,10 @@ beforeAll(async () => {
     .returning();
   const now = new Date();
   await db.insert(campaignRecipients).values([
-    { campaignId: camp.id, supplierId: sup[0].id, status: "replied", firstSentAt: now, firstReplyAt: now, interested: true, quoteReceived: true },
-    { campaignId: camp.id, supplierId: sup[1].id, status: "replied", firstSentAt: now, firstReplyAt: now, interested: false },
-    { campaignId: camp.id, supplierId: sup[2].id, status: "sent", firstSentAt: now },
-    { campaignId: camp.id, supplierId: sup[3].id, status: "queued" },
+    { campaignId: camp.id, supplierId: sup[0].id, position: 1, status: "replied", firstSentAt: now, firstReplyAt: now, interested: true, quoteReceived: true },
+    { campaignId: camp.id, supplierId: sup[1].id, position: 2, status: "replied", firstSentAt: now, firstReplyAt: now, interested: false },
+    { campaignId: camp.id, supplierId: sup[2].id, position: 3, status: "sent", firstSentAt: now },
+    { campaignId: camp.id, supplierId: sup[3].id, position: 4, status: "queued" },
   ]);
 });
 
@@ -130,16 +136,16 @@ describe("il cliente non può enumerare i fornitori non rispondenti", () => {
 
 describe("caselle del cliente (massimo 2)", () => {
   it("la terza casella è rifiutata", async () => {
-    const b1 = await addClientMailbox(db, admin, { organizationId: orgA, email: "rfq1@cliente-a.it" });
-    const b2 = await addClientMailbox(db, admin, { organizationId: orgA, email: "rfq2@cliente-a.it" });
+    const b1 = await addClientMailbox(db, admin, { organizationId: orgB, email: "rfq1@cliente-b.it" });
+    const b2 = await addClientMailbox(db, admin, { organizationId: orgB, email: "rfq2@cliente-b.it" });
     expect([b1.slot, b2.slot]).toEqual([1, 2]);
-    expect(await status(addClientMailbox(db, admin, { organizationId: orgA, email: "rfq3@cliente-a.it" }))).toBe(409);
+    expect(await status(addClientMailbox(db, admin, { organizationId: orgB, email: "rfq3@cliente-b.it" }))).toBe(409);
   });
 
   it("il vincolo regge anche aggirando il codice (garantito dal DB)", async () => {
     const { clientMailboxes } = await import("@/db/schema");
-    await expect(db.insert(clientMailboxes).values({ organizationId: orgA, slot: 3, email: "x3@a.it" })).rejects.toThrow();
-    await expect(db.insert(clientMailboxes).values({ organizationId: orgA, slot: 1, email: "x1@a.it" })).rejects.toThrow();
+    await expect(db.insert(clientMailboxes).values({ organizationId: orgB, slot: 3, email: "x3@b.it" })).rejects.toThrow();
+    await expect(db.insert(clientMailboxes).values({ organizationId: orgB, slot: 1, email: "x1@b.it" })).rejects.toThrow();
   });
 });
 

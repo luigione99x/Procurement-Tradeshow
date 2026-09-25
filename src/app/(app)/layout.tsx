@@ -2,14 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
 import { currentUser } from "@/lib/auth/session";
-import { connectorMode } from "@/lib/connectors/mode";
+import { policyFromEnv } from "@/lib/outbox";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const simulated = connectorMode("SMARTLEAD") === "mock" || connectorMode("MAILBOX") === "mock";
+  const policy = policyFromEnv();
 
   return (
     <div className="min-h-screen">
@@ -27,9 +27,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </header>
-      {simulated && (
+      {policy.mode !== "live" && (
         <div className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-center text-sm text-amber-800">
-          Modalità demo: invii e risposte dei fornitori sono <strong>simulati</strong>, nessuna email reale viene spedita.
+          {policy.mode === "mock" ? (
+            <>Modalità demo: <strong>nessuna email reale</strong> viene spedita.</>
+          ) : (
+            <>Modalità test: le email partono <strong>solo verso gli indirizzi di prova</strong> ({policy.allowlist.length}); gli altri fornitori restano in coda.</>
+          )}
         </div>
       )}
       <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>

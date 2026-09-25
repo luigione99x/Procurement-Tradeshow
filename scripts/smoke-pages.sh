@@ -10,6 +10,7 @@ OUT=$(npx tsx scripts/dev-db.ts "$WORK/db" admin@smoke.test admin-password-smoke
 CLI_EMAIL=$(node -e "console.log(JSON.parse(process.argv[1]).demo.email)" "$OUT")
 CLI_PW=$(node -e "console.log(JSON.parse(process.argv[1]).demo.password)" "$OUT")
 FAIR=$(node -e "console.log(JSON.parse(process.argv[1]).demoFairId)" "$OUT")
+CONV=$(node -e "console.log(JSON.parse(process.argv[1]).conversationId)" "$OUT")
 [ -d .next ] && [ "${SKIP_BUILD:-}" = "1" ] || npx next build > "$WORK/build.log" 2>&1 || { tail -30 "$WORK/build.log"; exit 1; }
 ./node_modules/.bin/next start -p $PORT > "$WORK/server.log" 2>&1 & SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$WORK"' EXIT
@@ -23,9 +24,9 @@ page(){ # jar path atteso
 echo "login admin: $(login adm admin@smoke.test admin-password-smoke)"
 curl -s -b "$WORK/adm" -o /dev/null -X POST -H 'Content-Type: application/json' -H "Origin: $U" \
   -d '{"organizationId":"'"$(curl -s -b "$WORK/adm" "$U/api/admin/organizations" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).organizations.find(o=>o.kind==='client').id))")"'","name":"Fiera creata da smoke","budgetCents":1500000}' "$U/api/fairs"
-page adm /login 200; page adm /fairs 200; page adm /admin 200; page adm "/fairs/$FAIR" 200; page adm /fairs/00000000-0000-0000-0000-000000000000 404
+page adm /login 200; page adm /fairs 200; page adm /admin 200; page adm /admin/suppliers 200; page adm "/fairs/$FAIR" 200; page adm "/fairs/$FAIR/conversations/$CONV" 200; page adm /fairs/00000000-0000-0000-0000-000000000000 404
 echo "login cliente: $(login cli "$CLI_EMAIL" "$CLI_PW")"
-page cli /fairs 200; page cli "/fairs/$FAIR" 200; page cli /admin 404
+page cli /fairs 200; page cli "/fairs/$FAIR" 200; page cli "/fairs/$FAIR/conversations/$CONV" 200; page cli /admin 404; page cli /admin/suppliers 404
 page anon /fairs 307
 if grep -qi "error" "$WORK/server.log"; then echo "--- errori nel log del server ---"; grep -i -A3 "error" "$WORK/server.log" | head -40; FAIL=1; fi
 [ $FAIL = 0 ] && echo "SMOKE OK" || { echo "SMOKE FALLITO"; exit 1; }

@@ -99,8 +99,8 @@ export async function campaignProgress(db: Db, actor: Actor, fairId: string) {
       replies: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.firstReplyAt} is not null)`,
       interested: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.interested} = true)`,
       quotes: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.quoteReceived} = true)`,
-      bounced: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.status} = 'bounced')`,
-      unsubscribed: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.status} = 'unsubscribed')`,
+      queued: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.status} in ('queued', 'sending'))`,
+      failed: sql<number>`count(distinct ${r.supplierId}) filter (where ${r.status} = 'failed')`,
     })
     .from(r)
     .innerJoin(campaigns, eq(campaigns.id, r.campaignId))
@@ -108,7 +108,7 @@ export async function campaignProgress(db: Db, actor: Actor, fairId: string) {
   const n = (v: unknown) => Number(v ?? 0);
   const client = { contacted: n(c.contacted), replies: n(c.replies), interested: n(c.interested), quotes: n(c.quotes) };
   if (actor.role !== "admin") return client;
-  return { ...client, total: n(c.total), bounced: n(c.bounced), unsubscribed: n(c.unsubscribed) };
+  return { ...client, total: n(c.total), queued: n(c.queued), failed: n(c.failed) };
 }
 
 // Fornitori che hanno risposto (il cliente vede solo questi, con nome).
@@ -236,4 +236,25 @@ export async function addClientMailbox(db: Db, actor: Actor, raw: unknown) {
     if (isUniqueViolation(err)) throw conflict("Casella già registrata o limite di 2 caselle raggiunto");
     throw err;
   }
+}
+
+export async function updateClientMailbox(db: Db, actor: Actor, mailboxId: string, raw: unknown) {
+  requireAdmin(actor);
+  if (!isUuid(mailboxId)) throw notFound("Casella");
+  const input = z
+    .object({
+      n8nCredentialName: z.string().trim().max(200).optional(),
+      n8nReplyWebhookUrl: z.union([z.literal(""), z.url().startsWith("https://")]).optional(),
+    })
+    .parse(raw);
+  const [box] = await db
+    .update(clientMailboxes)
+    .set({
+      ...(input.n8nCredentialName !== undefined && { n8nCredentialName: input.n8nCredentialName || null }),
+      ...(input.n8nReplyWebhookUrl !== undefined && { n8nReplyWebhookUrl: input.n8nReplyWebhookUrl || null }),
+    })
+    .where(eq(clientMailboxes.id, mailboxId))
+    .returning();
+  if (!box) throw notFound("Casella");
+  return box;
 }

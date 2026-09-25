@@ -2,6 +2,7 @@
 // Uso: npx tsx scripts/dev-db.ts <cartella> <email-admin> <password-admin>
 // Stampa in JSON le credenziali del cliente demo e l'id della fiera demo.
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import type { Db } from "../src/db/client";
@@ -22,7 +23,8 @@ async function main() {
     .returning();
   const demo = await seedDemo(db, { id: admin.id, organizationId: org.id, role: "admin" });
   const [fair] = await db.select().from(schema.fairs);
-  console.log(JSON.stringify({ demo: demo.created ? demo.login : null, demoFairId: fair.id }));
+  const [rec] = await db.select().from(schema.campaignRecipients).where(eq(schema.campaignRecipients.status, "replied"));
+  console.log(JSON.stringify({ demo: demo.created ? demo.login : null, demoFairId: fair.id, conversationId: rec.id }));
   await pg.close();
 }
 

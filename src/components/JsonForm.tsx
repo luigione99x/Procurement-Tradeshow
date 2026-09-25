@@ -10,10 +10,16 @@ export function JsonForm({
   action,
   children,
   submitLabel,
+  method = "POST",
+  resetOnSuccess = true,
+  confirmText,
 }: {
   action: string;
   children: React.ReactNode;
   submitLabel: string;
+  method?: "POST" | "PUT";
+  resetOnSuccess?: boolean;
+  confirmText?: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +28,7 @@ export function JsonForm({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formEl = e.currentTarget;
+    if (confirmText && !window.confirm(confirmText)) return;
     setBusy(true);
     setError(null);
     const data: Record<string, unknown> = {};
@@ -34,7 +41,7 @@ export function JsonForm({
       else data[el.name] = el.value.trim();
     }
     const res = await fetch(action, {
-      method: "POST",
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
@@ -44,7 +51,7 @@ export function JsonForm({
       setError(body.issues?.length ? body.issues.map((i: any) => `${i.path.join(".")}: ${i.message}`).join(" · ") : body.error ?? "Errore");
       return;
     }
-    formEl.reset();
+    if (resetOnSuccess) formEl.reset();
     router.refresh();
   }
 
